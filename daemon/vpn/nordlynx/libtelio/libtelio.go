@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	teliogo "github.com/NordSecurity/libtelio/ffi/bindings/linux/go"
+	teliogo "github.com/NordSecurity/libtelio-go/v5"
 	"github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon/vpn"
 	"github.com/NordSecurity/nordvpn-linux/daemon/vpn/nordlynx"
@@ -39,10 +39,6 @@ type state struct {
 	IsExit    bool   `json:"is_exit"`
 }
 
-type event struct {
-	Body state `json:"body"`
-}
-
 type eventFn func(string)
 
 func maskPublicKey(event string) string {
@@ -50,20 +46,56 @@ func maskPublicKey(event string) string {
 	return expr.ReplaceAllString(event, `"public_key":"***"`)
 }
 
-func eventCallback(states chan<- state) eventFn {
-	return func(s string) {
-		log.Println(internal.InfoPrefix + maskPublicKey(s))
-		var e event
-		if err := json.Unmarshal([]byte(s), &e); err != nil {
-			return
+type eventCb func(teliogo.Event) *teliogo.TelioError
+
+func (cb eventCb) Event(payload teliogo.Event) *teliogo.TelioError {
+	return cb(payload)
+}
+
+func eventCallback(states chan<- state) eventCb {
+	return func(e teliogo.Event) *teliogo.TelioError {
+		var st state
+
+		switch evt := e.(type) {
+		case teliogo.EventNode:
+			// NOTE: Conversion should probably be moved to separate file
+			st = state{
+				Nickname: *evt.Body.Nickname,
+				// NOTE: Do I need string here?
+				State:     fmt.Sprintf("%d", evt.Body.State),
+				PublicKey: string( /* NOTE: This will be changed to be string again */ evt.Body.PublicKey),
+				IsVPN:     evt.Body.IsVpn,
+				IsExit:    evt.Body.IsExit,
+			}
+		default:
+			// NOTE: What now?
+			return nil
 		}
 
 		select {
-		case states <- e.Body:
+		case states <- st:
 		default: // drop if nobody is listening
 		}
+
+		return nil
 	}
 }
+
+// NOTE: Remove it
+// func eventCallback(states chan<- state) eventFn {
+// 	return func(s string) {
+// 		log.Println(internal.InfoPrefix + maskPublicKey(s))
+// 		var e event
+// 		if err := json.Unmarshal([]byte(s), &e); err != nil {
+// 			return
+// 		}
+//
+// 		select {
+// 		case states <- e.Body:
+// 		default: // drop if nobody is listening
+// 		}
+// 	}
+// }
 
 // Libtelio wrapper around generated Go bindings.
 // Libtelio has 4 related methods and their combinations as following
@@ -83,7 +115,7 @@ func eventCallback(states chan<- state) eventFn {
 // 8. VPN disconnected, calling Disable - tunnel must be destroyed
 type Libtelio struct {
 	state                   vpn.State
-	lib                     teliogo.Telio
+	lib                     *teliogo.Telio
 	events                  <-chan state
 	cancelConnectionMonitor func()
 	active                  bool
@@ -93,7 +125,7 @@ type Libtelio struct {
 	currentServer     vpn.ServerData
 	currentPrivateKey string
 	isMeshEnabled     bool
-	meshnetMap        string
+	meshnetConfig     teliogo.Config
 	isKernelDisabled  bool
 	fwmark            uint32
 	eventsPublisher   *vpn.Events
@@ -151,7 +183,7 @@ type persistentKeepAliveConfig struct {
 }
 
 func handleTelioConfig(eventPath, deviceID, version string, prod bool, vpnLibCfg vpn.LibConfigGetter) ([]byte, error) {
-	telioConfig := &telioFeatures{}
+	telioConfig := &teliogo.Features{}
 	cfgString, err := vpnLibCfg.GetConfig(version)
 	if err != nil {
 		return nil, fmt.Errorf("getting telio config json string: %w", err)
@@ -174,24 +206,38 @@ func handleTelioConfig(eventPath, deviceID, version string, prod bool, vpnLibCfg
 }
 
 func New(prod bool, eventPath string, fwmark uint32,
-	vpnLibCfg vpn.LibConfigGetter, deviceID, appVersion string, eventsPublisher *vpn.Events) *Libtelio {
+	vpnLibCfg vpn.LibConfigGetter, deviceID, appVersion string, eventsPublisher *vpn.Events,
+) *Libtelio {
 	events := make(chan state)
-	logLevel := teliogo.TELIOLOGINFO
+	// NOTE: It was needed in the constructor
+	// logLevel := teliogo.TelioLogLevelInfo
 
 	var telioConfigString string
 	cfg, err := handleTelioConfig(eventPath, deviceID, appVersion, prod, vpnLibCfg)
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "Failed to get telio config:", err)
 
-		defaultTelioConfig := &telioFeatures{}
-		defaultTelioConfig.Lana = &lanaConfig{
-			Prod:      prod,
-			EventPath: eventPath,
+		defaultTelioConfig := teliogo.Features{
+			Lana: &teliogo.FeatureLana{
+				Prod:      prod,
+				EventPath: eventPath,
+			},
+			Direct: &teliogo.FeatureDirect{},
+			Nurse: &teliogo.FeatureNurse{
+				Fingerprint: deviceID,
+			},
 		}
-		defaultTelioConfig.Direct = &directConfig{}
-		defaultTelioConfig.Nurse = &nurseConfig{
-			Fingerprint: deviceID,
-		}
+
+		// NOTE: Remove it
+		// defaultTelioConfig := &telioFeatures{}
+		// defaultTelioConfig.Lana = &lanaConfig{
+		// 	Prod:      prod,
+		// 	EventPath: eventPath,
+		// }
+		// defaultTelioConfig.Direct = &directConfig{}
+		// defaultTelioConfig.Nurse = &nurseConfig{
+		// 	Fingerprint: deviceID,
+		// }
 
 		fallbackTelioConfig, err := json.Marshal(defaultTelioConfig)
 		if err != nil {
@@ -204,30 +250,53 @@ func New(prod bool, eventPath string, fwmark uint32,
 
 	log.Println(internal.InfoPrefix, "Telio final config:", telioConfigString)
 
+	// NOTE: Cleanup?
+	var features teliogo.Features
+	if err = json.Unmarshal(cfg, &features); err != nil {
+		log.Println(internal.ErrorPrefix, "Couldn't encode default telio config:", err)
+		// NOTE: Nope
+		panic("TODO")
+	}
+
+	lib, err := teliogo.NewTelio(features, eventCallback(events))
+	if err != nil {
+		log.Println(internal.ErrorPrefix, "Couldn't create telio instance:", err)
+	}
+
 	return &Libtelio{
-		lib: teliogo.NewTelio(
-			telioConfigString,
-			eventCallback(events),
-			logLevel, func(i int, s string) {
-				log.Println(
-					logLevelToPrefix(teliogo.Enum_SS_telio_log_level(i)),
-					"TELIO("+teliogo.TelioGetVersionTag()+"): "+s,
-				)
-			}),
+		lib:             lib,
 		events:          events,
 		state:           vpn.ExitedState,
 		fwmark:          fwmark,
 		eventsPublisher: eventsPublisher,
 	}
+
+	// NOTE: Remove it:
+
+	// return &Libtelio{
+	// 	lib: teliogo.NewTelio(
+	// 		telioConfigString,
+	// 		eventCallback(events),
+	// 		logLevel, func(i int, s string) {
+	// 			log.Println(
+	// 				logLevelToPrefix(teliogo.Enum_SS_telio_log_level(i)),
+	// 				"TELIO("+teliogo.TelioGetVersionTag()+"): "+s,
+	// 			)
+	// 		}),
+	// 	events:          events,
+	// 	state:           vpn.ExitedState,
+	// 	fwmark:          fwmark,
+	// 	eventsPublisher: eventsPublisher,
+	// }
 }
 
-func logLevelToPrefix(level teliogo.Enum_SS_telio_log_level) string {
+func logLevelToPrefix(level teliogo.TelioLogLevel) string {
 	switch level {
-	case teliogo.TELIOLOGCRITICAL, teliogo.TELIOLOGERROR:
+	case teliogo.TelioLogLevelError:
 		return internal.ErrorPrefix
-	case teliogo.TELIOLOGWARNING:
+	case teliogo.TelioLogLevelWarning:
 		return internal.WarningPrefix
-	case teliogo.TELIOLOGDEBUG, teliogo.TELIOLOGTRACE:
+	case teliogo.TelioLogLevelDebug, teliogo.TelioLogLevelTrace:
 		return internal.DebugPrefix
 	default:
 		return internal.InfoPrefix
@@ -247,7 +316,7 @@ func (l *Libtelio) Start(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	log.Println(internal.InfoPrefix, "libtelio version:", teliogo.TelioGetVersionTag())
+	log.Println(internal.InfoPrefix, "libtelio version:", teliogo.GetVersionTag())
 
 	if err = l.openTunnel(defaultIP, creds.NordLynxPrivateKey); err != nil {
 		return fmt.Errorf("opening the tunnel: %w", err)
@@ -272,11 +341,13 @@ func (l *Libtelio) connect(serverIP netip.Addr, serverPublicKey string) error {
 	// Start monitoring connection events before connecting to not miss any
 	isConnectedC := isConnected(ctx, l.events, connParameters{pubKey: serverPublicKey, server: l.currentServer}, l.eventsPublisher)
 
-	if err := toError(l.lib.ConnectToExitNode(
-		serverPublicKey,
-		"0.0.0.0/0",
-		net.JoinHostPort(serverIP.String(), "51820"),
-	)); err != nil {
+	// NOTE: Naming
+	hostPort := net.JoinHostPort(serverIP.String(), "51820")
+	if err := l.lib.ConnectToExitNode(
+		[]byte(serverPublicKey),
+		&[]string{"0.0.0.0/0"},
+		&hostPort,
+	); err != nil {
 		if !l.isMeshEnabled {
 			// only close the tunnel when there was VPN connect problem
 			// and meshnet is not active
@@ -328,7 +399,7 @@ func (l *Libtelio) disconnect() error {
 		l.cancelConnectionMonitor()
 	}
 
-	if err := toError(l.lib.DisconnectFromExitNodes()); err != nil {
+	if err := l.lib.DisconnectFromExitNodes(); err != nil {
 		return fmt.Errorf("stopping libtelio: %w", err)
 	}
 	l.active = false
@@ -418,7 +489,7 @@ func (l *Libtelio) Disable() error {
 }
 
 func (l *Libtelio) disable() error {
-	if err := toError(l.lib.SetMeshnetOff()); err != nil {
+	if err := l.lib.SetMeshnetOff(); err != nil {
 		return fmt.Errorf("disabling mesh: %w", err)
 	}
 	l.isMeshEnabled = false
@@ -436,8 +507,8 @@ func (l *Libtelio) NetworkChanged() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if result := l.lib.NotifyNetworkChange(""); result != teliogo.TELIORESOK {
-		log.Println(internal.ErrorPrefix, "failed to notify network change:", toError(result))
+	if err := l.lib.NotifyNetworkChange(""); err != nil {
+		log.Println(internal.ErrorPrefix, "failed to notify network change:", err)
 
 		if l.active {
 			serverIP := l.currentServer.IP
@@ -452,11 +523,11 @@ func (l *Libtelio) NetworkChanged() error {
 		}
 
 		if l.isMeshEnabled {
-			if err := toError(l.lib.SetMeshnetOff()); err != nil {
+			if err := l.lib.SetMeshnetOff(); err != nil {
 				return err
 			}
 
-			if err := toError(l.lib.SetMeshnet(l.meshnetMap)); err != nil {
+			if err := l.lib.SetMeshnet(l.meshnetConfig); err != nil {
 				return err
 			}
 		}
@@ -471,38 +542,49 @@ func (l *Libtelio) Refresh(c mesh.MachineMap) error {
 		return nil
 	}
 
-	meshnetMap := string(c.Raw)
+	// NOTE: Cleanup
+	var config teliogo.Config
+	if err := json.Unmarshal(c.Raw, &config); err != nil {
+		return fmt.Errorf("failed to unmarshall config: %d", err)
+	}
 
-	result := teliogo.TELIORESOK
+	var err error = nil
 	for i := 0; i < 10; i++ {
-		if result = l.lib.SetMeshnet(meshnetMap); result == teliogo.TELIORESOK {
+		if err := l.lib.SetMeshnet(config); err == nil {
 			break
 		}
 		time.Sleep(time.Millisecond * 100)
 	}
 
-	if result != teliogo.TELIORESOK {
-		return fmt.Errorf("failed to refresh meshnet: %d", result)
+	if err != nil {
+		return fmt.Errorf("failed to refresh meshnet: %d", err)
 	}
 
-	l.meshnetMap = meshnetMap
+	l.meshnetConfig = config
 
 	return nil
 }
 
 type peer struct {
-	PublicKey string `json:"public_key"`
-	State     string `json:"state"`
+	PublicKey string
+	State     string
 }
 
 func (l *Libtelio) StatusMap() (map[string]string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	var peers []peer
-	if err := json.Unmarshal([]byte(l.lib.GetStatusMap()), &peers); err != nil {
-		return nil, fmt.Errorf("unmarshalling peer list: %w", err)
+	statusMap := l.lib.GetStatusMap()
+	peers := make([]peer, len(statusMap))
+	for i, node := range statusMap {
+		peers[i] = peer{
+			PublicKey: string(node.PublicKey),
+			State:     fmt.Sprintf("%d", node.State),
+		}
 	}
+	// if err := json.Unmarshal([]byte(l.lib.GetStatusMap()), &peers); err != nil {
+	// 	return nil, fmt.Errorf("unmarshalling peer list: %w", err)
+	// }
 
 	m := map[string]string{}
 	for _, p := range peers {
@@ -525,25 +607,26 @@ func (l *Libtelio) openTunnel(ip netip.Addr, privateKey string) (err error) {
 		}
 	}
 
-	adapter := teliogo.TELIOADAPTERLINUXNATIVETUN
+	adapter := teliogo.TelioAdapterTypeLinuxNativeTun
 	if l.isKernelDisabled {
-		adapter = teliogo.TELIOADAPTERBORINGTUN
+		adapter = teliogo.TelioAdapterTypeBoringTun
 	}
 
-	if err := toError(l.lib.StartNamed(
-		privateKey,
+	if err := l.lib.StartNamed(
+		// NOTE: Do I need convertion everywhere?
+		[]byte(privateKey),
 		adapter,
 		nordlynx.InterfaceName,
-	)); err != nil {
+	); err != nil {
 		if l.isKernelDisabled {
 			return fmt.Errorf("starting libtelio: %w", err)
 		}
-		adapter = teliogo.TELIOADAPTERBORINGTUN
-		if err := toError(l.lib.StartNamed(
-			privateKey,
+		adapter = teliogo.TelioAdapterTypeBoringTun
+		if err := l.lib.StartNamed(
+			[]byte(privateKey),
 			adapter,
 			nordlynx.InterfaceName,
-		)); err != nil {
+		); err != nil {
 			return fmt.Errorf("starting libtelio on retry with boring-tun: %w", err)
 		}
 		l.isKernelDisabled = true
@@ -555,7 +638,7 @@ func (l *Libtelio) openTunnel(ip netip.Addr, privateKey string) (err error) {
 		}
 	}()
 
-	if err = toError(l.lib.SetFwmark(uint(l.fwmark))); err != nil {
+	if err = l.lib.SetFwmark(uint32(l.fwmark)); err != nil {
 		return fmt.Errorf("setting fwmark: %w", err)
 	}
 
@@ -589,7 +672,7 @@ func (l *Libtelio) closeTunnel() error {
 	if l.tun == nil {
 		return nil
 	}
-	if err := toError(l.lib.Stop()); err != nil {
+	if err := l.lib.Stop(); err != nil {
 		return fmt.Errorf("stopping libtelio: %w", err)
 	}
 	l.tun = nil
@@ -605,9 +688,10 @@ func (l *Libtelio) updateTunnel(privateKey string, ip netip.Addr) error {
 		return fmt.Errorf("adding interface addrs: %w", err)
 	}
 
-	if err := toError(l.lib.SetPrivateKey(
-		privateKey,
-	)); err != nil {
+	if err := l.lib.SetSecretKey(
+		// NOTE: Do I need this conversion?
+		[]byte(privateKey),
+	); err != nil {
 		return fmt.Errorf("setting private key: %w", err)
 	}
 
@@ -617,12 +701,14 @@ func (l *Libtelio) updateTunnel(privateKey string, ip netip.Addr) error {
 
 // Private key generation.
 func (l *Libtelio) Private() string {
-	return l.lib.GenerateSecretKey()
+	// NOTE: Do I need the conversion here?
+	return string(teliogo.GenerateSecretKey())
 }
 
 // Public key extraction from private.
 func (l *Libtelio) Public(private string) string {
-	return l.lib.GeneratePublicKey(private)
+	// NOTE: Do I need the conversion here?
+	return string(teliogo.GeneratePublicKey([]byte(private)))
 }
 
 // isConnected function designed to be called before performing an action which trigger events.
@@ -635,7 +721,8 @@ func (l *Libtelio) Public(private string) string {
 func isConnected(ctx context.Context,
 	stateCh <-chan state,
 	connParams connParameters,
-	eventsPublisher *vpn.Events) <-chan interface{} {
+	eventsPublisher *vpn.Events,
+) <-chan interface{} {
 	// we need waitgroup just to make sure goroutine has started
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -684,7 +771,8 @@ func monitorConnection(
 	states <-chan state,
 	isConnected chan<- interface{},
 	connParameters connParameters,
-	eventsPublisher *vpn.Events) {
+	eventsPublisher *vpn.Events,
+) {
 	type notifyState int
 	const (
 		disconnected notifyState = iota
