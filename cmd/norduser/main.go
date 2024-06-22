@@ -168,7 +168,8 @@ func waitForShutdown(stopChan <-chan norduser.StopRequest,
 	fileshareManagementChan chan<- norduser.FileshareManagementMsg,
 	fileshareShutdownChan <-chan interface{},
 	grpcServer *grpc.Server,
-	onShutdown func(bool)) {
+	onShutdown func(bool),
+) {
 	restart := false
 	signals := internal.GetSignalChan()
 
