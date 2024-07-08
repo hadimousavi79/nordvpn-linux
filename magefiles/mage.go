@@ -427,40 +427,6 @@ func (Build) OpenvpnDocker(ctx context.Context) error {
 	)
 }
 
-// Rust dependencies for the host architecture
-func (Build) Rust(ctx context.Context) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	env := map[string]string{
-		"ARCHS":   build.Default.GOARCH,
-		"WORKDIR": cwd,
-	}
-	return sh.RunWith(env, "build/foss/build.sh")
-}
-
-// Builds rust dependencies using Docker builder
-func (Build) RustDocker(ctx context.Context) error {
-	env, err := getEnv()
-	if err != nil {
-		return err
-	}
-
-	env["ARCHS"] = build.Default.GOARCH
-	env["WORKDIR"] = dockerWorkDir
-	if err := RunDocker(
-		ctx,
-		env,
-		imageRuster,
-		[]string{"build/foss/build.sh"},
-	); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // Generate Protobuf from protobuf/* definitions using Docker builder
 func (Generate) ProtobufDocker(ctx context.Context) error {
 	env, err := getEnv()
