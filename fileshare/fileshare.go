@@ -6,7 +6,7 @@ import (
 	"time"
 
 	norddrop "github.com/NordSecurity/libdrop-go/v7"
-	_ "github.com/NordSecurity/nordvpn-linux/fileshare/libdrop/symbols" // this is required to make cgo symbols available during linking
+	_ "github.com/NordSecurity/nordvpn-linux/fileshare/libdrop" // this is required to make cgo symbols available during linking
 	"github.com/NordSecurity/nordvpn-linux/fileshare/pb"
 )
 
