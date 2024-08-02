@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	teliogo "github.com/NordSecurity/libtelio-go/v5"
 	"github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon/vpn"
@@ -38,6 +40,7 @@ type state struct {
 	PublicKey string
 	IsVPN     bool
 	IsExit    bool
+	Uuid      string
 }
 
 func maskPublicKey(event string) string {
@@ -53,6 +56,7 @@ func (cb eventCb) Event(payload teliogo.Event) *teliogo.TelioError {
 
 func eventCallback(states chan<- state) eventCb {
 	return func(e teliogo.Event) *teliogo.TelioError {
+		log.Println("____________         running callback")
 		eventBytes, err := json.Marshal(&e)
 		if err != nil {
 			log.Printf(internal.WarningPrefix+" can't marshal telio Event %T: %s\n", e, err)
@@ -67,21 +71,41 @@ func eventCallback(states chan<- state) eventCb {
 			if evt.Body.Nickname != nil {
 				nickname = *evt.Body.Nickname
 			}
+			id := uuid.New()
 			st = state{
 				Nickname:  nickname,
 				State:     evt.Body.State,
 				PublicKey: evt.Body.PublicKey,
 				IsVPN:     evt.Body.IsVpn,
 				IsExit:    evt.Body.IsExit,
+				Uuid:      id.String(),
+			}
+			if st.PublicKey == "PLOMVcnTsVhVFT3Uchg2LhS+ILpI1msRWjDVCCmj8Qs=" && st.State == teliogo.NodeStateConnected {
+				body, _ := json.Marshal(st)
+				log.Println(internal.WarningPrefix, "))))))))))                      have needed event!!!!!!!!!!:", string(body), "with state", st.State, "connected state is:", teliogo.NodeStateConnected)
+				// select {
+				// case states <- st:
+				// 	log.Println(internal.WarningPrefix, "))))))))))))))))))))))))           needed event sent!!!!!", string(body))
+				// default: // drop if nobody is listening
+				// 	log.Println(internal.WarningPrefix, "!!!!!!!!!!!!!!!!!!!!!!!!           needed event dropped:", string(body))
+				// }
 			}
 		default:
 			// ignore
 			return nil
 		}
 
+		body, _ := json.Marshal(st)
+		log.Println(internal.WarningPrefix, "__________                      trying to send event:", string(body))
 		select {
 		case states <- st:
+			if st.PublicKey == "PLOMVcnTsVhVFT3Uchg2LhS+ILpI1msRWjDVCCmj8Qs=" && st.State == teliogo.NodeStateConnected {
+				log.Println(internal.WarningPrefix, ")))))))))))           needed event sent!!!!", string(body))
+			} else {
+				log.Println(internal.WarningPrefix, "___________           event sent", string(body))
+			}
 		default: // drop if nobody is listening
+			log.Println(internal.WarningPrefix, "!!!!!!!!!!!!!!!!!!!!!!!!           dropped:", string(body))
 		}
 
 		return nil
@@ -159,7 +183,6 @@ func (cb *telioLoggerCb) Log(logLevel teliogo.TelioLogLevel, payload string) *te
 func New(prod bool, eventPath string, fwmark uint32,
 	vpnLibCfg vpn.LibConfigGetter, deviceID, appVersion string, eventsPublisher *vpn.Events,
 ) (*Libtelio, error) {
-	events := make(chan state)
 	features, err := handleTelioConfig(eventPath, deviceID, appVersion, prod, vpnLibCfg)
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "failed to get telio config:", err)
@@ -187,7 +210,8 @@ func New(prod bool, eventPath string, fwmark uint32,
 
 	var loggerCb teliogo.TelioLoggerCb = &telioLoggerCb{}
 	teliogo.SetGlobalLogger(teliogo.TelioLogLevelInfo, loggerCb)
-	lib, err := teliogo.NewTelio(*features, eventCallback(events))
+	states := make(chan state, 1000)
+	lib, err := teliogo.NewTelio(*features, eventCallback(states))
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "failed to create telio instance:", err)
 		return nil, err
@@ -195,7 +219,7 @@ func New(prod bool, eventPath string, fwmark uint32,
 
 	return &Libtelio{
 		lib:             lib,
-		events:          events,
+		events:          states,
 		state:           vpn.ExitedState,
 		fwmark:          fwmark,
 		eventsPublisher: eventsPublisher,
@@ -636,12 +660,16 @@ func isConnected(ctx context.Context,
 	wg.Add(1)
 
 	connectedCh := make(chan interface{})
+	log.Println("____________         starting monitoring goroutine")
 	go func() {
 		wg.Done() // signal that goroutine has started
+		log.Println("____________         starting monitorConnection next")
 		monitorConnection(ctx, stateCh, connectedCh, connParams, eventsPublisher)
 	}()
 
+	log.Println("____________         waiting for the goroutine start")
 	wg.Wait() // wait until goroutine is started
+	log.Println("____________         goroutine started")
 
 	return connectedCh
 }
@@ -681,6 +709,7 @@ func monitorConnection(
 	connParameters connParameters,
 	eventsPublisher *vpn.Events,
 ) {
+	log.Println("____________         start monitoring the connection")
 	type notifyState int
 	const (
 		disconnected notifyState = iota
@@ -691,11 +720,31 @@ func monitorConnection(
 	currentNotifyState := disconnected
 	initialConnection := true
 	for {
+		log.Println(internal.WarningPrefix, "____________         read loop")
+		// state := <-states
+		// s, _ := json.Marshal(&state)
+		// log.Println("<<<<<<<<<<<<<<     received", string(s))
 		select {
 		case state := <-states:
+			s, _ := json.Marshal(&state)
+			log.Println(internal.WarningPrefix, "<<<<<<<<<<<<<<     received", string(s))
 			if !state.IsExit {
+				log.Println(internal.WarningPrefix, "??????????????????????????           breaking read loop:", string(s))
 				break
 			}
+
+			//"Nickname":"","State":2,"PublicKey":"PLOMVcnTsVhVFT3Uchg2LhS+ILpI1msRWjDVCCmj8Qs=","IsVPN":false,"IsExit":false,"Ip":"100.102.37.142","Uuid":"8c8531c4-cefe-4440-8897-f864c1853319"
+
+			// state.State = teliogo.NodeStateConnected
+			// state.PublicKey = "PLOMVcnTsVhVFT3Uchg2LhS+ILpI1msRWjDVCCmj8Qs="
+			// state.IsVPN = false
+			// state.IsExit = false
+			// state.Uuid = "8c8531c4-cefe-4440-8897-f864c1853319"
+
+			// if state.PublicKey == "PLOMVcnTsVhVFT3Uchg2LhS+ILpI1msRWjDVCCmj8Qs=" {
+			// 	log.Println(internal.WarningPrefix, "??????????????????????????           changing state")
+			// 	state.State = teliogo.NodeStateConnected
+			// }
 
 			switch state.State {
 			case teliogo.NodeStateConnecting:
@@ -704,6 +753,7 @@ func monitorConnection(
 					publishConnectEvent(eventsPublisher, events.ConnectAttempt, connParameters.server, state)
 				}
 			case teliogo.NodeStateConnected:
+				log.Println(internal.WarningPrefix, "??????????????????????????           connected!", state.PublicKey)
 				if state.PublicKey == connParameters.pubKey {
 					if initialConnection {
 						close(isConnected)
@@ -726,6 +776,7 @@ func monitorConnection(
 				currentNotifyState = disconnected
 				publishDisconnectedEvent(eventsPublisher)
 			}
+			log.Println(internal.WarningPrefix, "!!!!!!!!!!!!!!!!!!!!!!!!!!           done, exitin read loop!")
 			return
 		}
 	}

@@ -43,8 +43,8 @@ cd "${WORKDIR}"
 # extract symbols into files
 # shellcheck disable=SC2153
 # modify binaries in the target directory
-"${STRIP}" -f "${SYMBOL_DIR}/${PKG_TO_BUILD}/nordvpnd-${ARCH}.debug" \
-	"${BASEDIR}"/usr/sbin/nordvpnd
+# "${STRIP}" -f "${SYMBOL_DIR}/${PKG_TO_BUILD}/nordvpnd-${ARCH}.debug" \
+# 	"${BASEDIR}"/usr/sbin/nordvpnd
 # shellcheck disable=SC2153
 "${STRIP}" -f "${SYMBOL_DIR}/${PKG_TO_BUILD}/nordvpn-${ARCH}.debug" \
 	"${BASEDIR}"/usr/bin/nordvpn
