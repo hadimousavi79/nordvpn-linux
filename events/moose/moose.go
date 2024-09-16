@@ -9,7 +9,6 @@ package moose
 // #cgo arm LDFLAGS: -L${SRCDIR}/../../bin/deps/lib/armhf/latest -lmoosenordvpnapp -lmooseworker -lsqlite3
 // #cgo arm64 LDFLAGS: -L${SRCDIR}/../../bin/deps/lib/aarch64/latest -lmoosenordvpnapp -lmooseworker -lsqlite3
 // #cgo LDFLAGS: -ldl -lm
-// #include <signal.h>
 import "C"
 
 import (
@@ -143,8 +142,6 @@ func (s *Subscriber) mooseInit() error {
 	sendEvents := true
 	var batchSize uint32 = 20
 	compressRequest := true
-
-	C.signal(C.SIGSEGV, C.SIG_DFL)
 
 	if err := s.response(uint32(worker.Start(
 		s.EventsDbPath,

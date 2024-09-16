@@ -31,8 +31,6 @@ create_socket_dir() {
 # Function that starts the daemon
 #
 start() {
-  ulimit -c unlimited
-  echo "/tmp/core" > /proc/sys/kernel/core_pattern
   create_socket_dir
   # Return
   #   0 if daemon has been started
