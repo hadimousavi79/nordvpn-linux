@@ -83,14 +83,15 @@ func statusStream(stateChan <-chan interface{},
 				}
 
 				status := pb.ConnectionStatus{
-					State:          state,
-					ServerIp:       e.TargetServerIP,
-					ServerCountry:  e.TargetServerCountry,
-					ServerCity:     e.TargetServerCity,
-					ServerName:     e.TargetServerName,
-					ServerHostname: e.TargetServerDomain,
-					IsMeshPeer:     e.IsMeshnetPeer,
-					ByUser:         true,
+					State:             state,
+					ServerIp:          e.TargetServerIP,
+					ServerCountry:     e.TargetServerCountry,
+					ServerCountryCode: e.TargetServerCountryCode,
+					ServerCity:        e.TargetServerCity,
+					ServerName:        e.TargetServerName,
+					ServerHostname:    e.TargetServerDomain,
+					IsMeshPeer:        e.IsMeshnetPeer,
+					ByUser:            true,
 				}
 				if err := srv.Send(
 					&pb.AppState{State: &pb.AppState_ConnectionStatus{ConnectionStatus: &status}}); err != nil {

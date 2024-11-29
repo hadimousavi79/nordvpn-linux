@@ -16,8 +16,10 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var tag = regexp.MustCompile(`^[a-z]{2}[0-9]{2,4}$`)
-var ErrDedicatedIPServer = fmt.Errorf("selected dedicated IP servers group")
+var (
+	tag                  = regexp.MustCompile(`^[a-z]{2}[0-9]{2,4}$`)
+	ErrDedicatedIPServer = fmt.Errorf("selected dedicated IP servers group")
+)
 
 // PickServer by the specified criteria.
 func PickServer(
@@ -69,7 +71,7 @@ func getServers(
 	count int,
 	allowVirtualServer bool,
 ) ([]core.Server, bool, error) {
-	var remote = true
+	remote := true
 	var err error
 	ret := []core.Server{}
 
@@ -470,7 +472,6 @@ func selectServer(r *RPC, insights *core.Insights, cfg config.Config, tag string
 		groupFlag,
 		cfg.VirtualLocation.Get(),
 	)
-
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "picking servers:", err)
 		switch {
@@ -573,9 +574,10 @@ func selectDedicatedIPServer(authChecker auth.Checker, servers core.Servers) (*c
 }
 
 type ServerParameters struct {
-	Country string
-	City    string
-	Group   config.ServerGroup
+	Country     string
+	CountryCode string
+	City        string
+	Group       config.ServerGroup
 }
 
 func GetServerParameters(serverTag string, groupTag string, countries core.Countries) ServerParameters {
@@ -591,6 +593,8 @@ func GetServerParameters(serverTag string, groupTag string, countries core.Count
 
 	country := countries[countryIndex]
 	parameters.Country = country.Name
+	parameters.CountryCode = country.Code
+
 	if cityIndex == -1 {
 		return parameters
 	}

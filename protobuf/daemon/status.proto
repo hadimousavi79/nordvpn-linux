@@ -19,6 +19,8 @@ message ConnectionParameters {
   string country = 2;
   string city = 3;
   config.ServerGroup group = 4;
+  string country_code = 5;
+  string server_host_name = 6;
 }
 
 message StatusResponse {
@@ -36,4 +38,6 @@ message StatusResponse {
   bool virtualLocation = 12;
   ConnectionParameters parameters = 13;
   bool postQuantum = 14;
+  string country_code = 15;
+  bool obfuscated = 16;
 }

@@ -238,9 +238,12 @@ func (r *RPC) StartAutoConnect(timeoutFn GetTimeoutFunc) error {
 		if connectErrorCheck(err) && server.err == nil {
 			log.Println(internal.InfoPrefix, "auto-connect success")
 			r.ConnectionParameters.SetConnectionParameters(pb.ConnectionSource_AUTO,
-				ServerParameters{Country: cfg.AutoConnectData.Country,
-					City:  cfg.AutoConnectData.City,
-					Group: cfg.AutoConnectData.Group})
+				ServerParameters{
+					Country:     cfg.AutoConnectData.Country,
+					CountryCode: cfg.AutoConnectData.CountryCode,
+					City:        cfg.AutoConnectData.City,
+					Group:       cfg.AutoConnectData.Group,
+				})
 			return nil
 		}
 		log.Println(internal.ErrorPrefix, "auto-connect failed, err1:", server.err, "| err2:", err)

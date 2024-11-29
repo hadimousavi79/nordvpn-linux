@@ -73,6 +73,8 @@ type ConnectionStatus struct {
 	Hostname string
 	// Country of the other end of the connection
 	Country string
+	// Country code of the other end of the connection
+	CountryCode string
 	// City of the other end of the connection
 	City string
 	// Download is the amount of data received through the connection
@@ -83,6 +85,8 @@ type ConnectionStatus struct {
 	Uptime *time.Duration
 	// Is virtual server
 	VirtualLocation bool
+	// Is obfuscated
+	Obfuscated bool
 }
 
 // Networker configures networking for connections.
@@ -563,11 +567,13 @@ func (netw *Combined) ConnectionStatus() (ConnectionStatus, error) {
 		Name:            netw.lastServer.Name,
 		Hostname:        netw.lastServer.Hostname,
 		Country:         netw.lastServer.Country,
+		CountryCode:     netw.lastServer.CountryCode,
 		City:            netw.lastServer.City,
 		Download:        stats.Rx,
 		Upload:          stats.Tx,
 		Uptime:          uptime,
 		VirtualLocation: netw.lastServer.VirtualLocation,
+		Obfuscated:      netw.lastServer.Obfuscated,
 	}, nil
 }
 

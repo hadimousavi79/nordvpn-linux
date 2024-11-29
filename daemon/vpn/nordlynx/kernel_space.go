@@ -46,10 +46,11 @@ func (k *KernelSpace) Start(
 	}
 
 	event := events.DataConnect{
-		EventStatus:         events.StatusAttempt,
-		TargetServerIP:      serverData.IP.String(),
-		TargetServerCountry: serverData.Country,
-		TargetServerCity:    serverData.City,
+		EventStatus:             events.StatusAttempt,
+		TargetServerIP:          serverData.IP.String(),
+		TargetServerCountry:     serverData.Country,
+		TargetServerCountryCode: serverData.CountryCode,
+		TargetServerCity:        serverData.City,
 	}
 
 	k.eventsPublisher.Connected.Publish(event)
@@ -71,12 +72,12 @@ func (k *KernelSpace) Start(
 
 	k.serverData = serverData
 
-	//check if wireguard is not up already
+	// check if wireguard is not up already
 	if _, err := exec.Command("ip", "link", "show", "dev", InterfaceName).Output(); err == nil {
 		return vpn.ErrTunnelAlreadyExists
 	}
 
-	//add wireguard interface
+	// add wireguard interface
 	if err := upWGInterface(InterfaceName); err != nil {
 		return fmt.Errorf("turning on nordlynx: %w", err)
 	}

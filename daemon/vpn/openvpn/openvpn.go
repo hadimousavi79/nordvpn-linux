@@ -350,20 +350,22 @@ func (ovpn *OpenVPN) getSubstate() vpn.Substate {
 // publishConnecting publishes Connecting event using current stored server data. Thread unsafe.
 func (ovpn *OpenVPN) publishConnecting() {
 	ovpn.eventsPublisher.Connected.Publish(events.DataConnect{
-		EventStatus:         events.StatusAttempt,
-		TargetServerIP:      ovpn.serverData.IP.String(),
-		TargetServerCountry: ovpn.serverData.Country,
-		TargetServerCity:    ovpn.serverData.City,
+		EventStatus:             events.StatusAttempt,
+		TargetServerIP:          ovpn.serverData.IP.String(),
+		TargetServerCountry:     ovpn.serverData.Country,
+		TargetServerCountryCode: ovpn.serverData.CountryCode,
+		TargetServerCity:        ovpn.serverData.City,
 	})
 }
 
 // publishConnecting publishes Connecting event using current stored server data. Thread unsafe.
 func (ovpn *OpenVPN) publishConnected() {
 	ovpn.eventsPublisher.Connected.Publish(events.DataConnect{
-		EventStatus:         events.StatusSuccess,
-		TargetServerIP:      ovpn.serverData.IP.String(),
-		TargetServerCountry: ovpn.serverData.Country,
-		TargetServerCity:    ovpn.serverData.City,
+		EventStatus:             events.StatusSuccess,
+		TargetServerIP:          ovpn.serverData.IP.String(),
+		TargetServerCountry:     ovpn.serverData.Country,
+		TargetServerCountryCode: ovpn.serverData.CountryCode,
+		TargetServerCity:        ovpn.serverData.City,
 	})
 }
 
@@ -571,8 +573,8 @@ func newManagementClient(eventCh chan<- gopenvpn.Event) (chan *gopenvpn.MgmtClie
 
 	internal.UpdateFilePermissions(openvpnManagementSocket, internal.PermUserRWX)
 
-	var clientCh = make(chan *gopenvpn.MgmtClient)
-	var errorCh = make(chan error)
+	clientCh := make(chan *gopenvpn.MgmtClient)
+	errorCh := make(chan error)
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {

@@ -18,19 +18,23 @@ MANUAL: ConnectionSource
 AUTO: ConnectionSource
 
 class ConnectionParameters(_message.Message):
-    __slots__ = ("source", "country", "city", "group")
+    __slots__ = ("source", "country", "city", "group", "country_code", "server_host_name")
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     COUNTRY_FIELD_NUMBER: _ClassVar[int]
     CITY_FIELD_NUMBER: _ClassVar[int]
     GROUP_FIELD_NUMBER: _ClassVar[int]
+    COUNTRY_CODE_FIELD_NUMBER: _ClassVar[int]
+    SERVER_HOST_NAME_FIELD_NUMBER: _ClassVar[int]
     source: ConnectionSource
     country: str
     city: str
     group: _group_pb2.ServerGroup
-    def __init__(self, source: _Optional[_Union[ConnectionSource, str]] = ..., country: _Optional[str] = ..., city: _Optional[str] = ..., group: _Optional[_Union[_group_pb2.ServerGroup, str]] = ...) -> None: ...
+    country_code: str
+    server_host_name: str
+    def __init__(self, source: _Optional[_Union[ConnectionSource, str]] = ..., country: _Optional[str] = ..., city: _Optional[str] = ..., group: _Optional[_Union[_group_pb2.ServerGroup, str]] = ..., country_code: _Optional[str] = ..., server_host_name: _Optional[str] = ...) -> None: ...
 
 class StatusResponse(_message.Message):
-    __slots__ = ("state", "technology", "protocol", "ip", "hostname", "country", "city", "download", "upload", "uptime", "name", "virtualLocation", "parameters", "postQuantum")
+    __slots__ = ("state", "technology", "protocol", "ip", "hostname", "country", "city", "download", "upload", "uptime", "name", "virtualLocation", "parameters", "postQuantum", "country_code", "obfuscated")
     STATE_FIELD_NUMBER: _ClassVar[int]
     TECHNOLOGY_FIELD_NUMBER: _ClassVar[int]
     PROTOCOL_FIELD_NUMBER: _ClassVar[int]
@@ -45,6 +49,8 @@ class StatusResponse(_message.Message):
     VIRTUALLOCATION_FIELD_NUMBER: _ClassVar[int]
     PARAMETERS_FIELD_NUMBER: _ClassVar[int]
     POSTQUANTUM_FIELD_NUMBER: _ClassVar[int]
+    COUNTRY_CODE_FIELD_NUMBER: _ClassVar[int]
+    OBFUSCATED_FIELD_NUMBER: _ClassVar[int]
     state: str
     technology: _technology_pb2.Technology
     protocol: _protocol_pb2.Protocol
@@ -59,4 +65,6 @@ class StatusResponse(_message.Message):
     virtualLocation: bool
     parameters: ConnectionParameters
     postQuantum: bool
-    def __init__(self, state: _Optional[str] = ..., technology: _Optional[_Union[_technology_pb2.Technology, str]] = ..., protocol: _Optional[_Union[_protocol_pb2.Protocol, str]] = ..., ip: _Optional[str] = ..., hostname: _Optional[str] = ..., country: _Optional[str] = ..., city: _Optional[str] = ..., download: _Optional[int] = ..., upload: _Optional[int] = ..., uptime: _Optional[int] = ..., name: _Optional[str] = ..., virtualLocation: bool = ..., parameters: _Optional[_Union[ConnectionParameters, _Mapping]] = ..., postQuantum: bool = ...) -> None: ...
+    country_code: str
+    obfuscated: bool
+    def __init__(self, state: _Optional[str] = ..., technology: _Optional[_Union[_technology_pb2.Technology, str]] = ..., protocol: _Optional[_Union[_protocol_pb2.Protocol, str]] = ..., ip: _Optional[str] = ..., hostname: _Optional[str] = ..., country: _Optional[str] = ..., city: _Optional[str] = ..., download: _Optional[int] = ..., upload: _Optional[int] = ..., uptime: _Optional[int] = ..., name: _Optional[str] = ..., virtualLocation: bool = ..., parameters: _Optional[_Union[ConnectionParameters, _Mapping]] = ..., postQuantum: bool = ..., country_code: _Optional[str] = ..., obfuscated: bool = ...) -> None: ...

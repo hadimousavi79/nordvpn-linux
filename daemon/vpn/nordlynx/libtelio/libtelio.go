@@ -262,7 +262,8 @@ func (l *Libtelio) connect(
 	connectCtx context.Context,
 	serverIP netip.Addr,
 	serverPublicKey string,
-	postQuantum bool) error {
+	postQuantum bool,
+) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	l.cancelConnectionMonitor = cancel
 
@@ -696,13 +697,14 @@ func publishConnectEvent(publisher *vpn.Events, connectType events.TypeEventStat
 		name = state.Nickname
 	}
 	publisher.Connected.Publish(events.DataConnect{
-		EventStatus:         connectType,
-		TargetServerIP:      server.IP.String(),
-		TargetServerCountry: server.Country,
-		TargetServerCity:    server.City,
-		TargetServerDomain:  server.Hostname,
-		TargetServerName:    name,
-		IsMeshnetPeer:       !state.IsVPN,
+		EventStatus:             connectType,
+		TargetServerIP:          server.IP.String(),
+		TargetServerCountry:     server.Country,
+		TargetServerCountryCode: server.CountryCode,
+		TargetServerCity:        server.City,
+		TargetServerDomain:      server.Hostname,
+		TargetServerName:        name,
+		IsMeshnetPeer:           !state.IsVPN,
 	})
 }
 

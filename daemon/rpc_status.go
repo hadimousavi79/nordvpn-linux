@@ -39,14 +39,14 @@ func (r *RPC) Status(context.Context, *pb.Empty) (*pb.StatusResponse, error) {
 		status.State = "Connecting"
 	}
 
-	connectionParameters, err := r.ConnectionParameters.GetConnectionParameters()
-	if err != nil {
-		log.Println(internal.WarningPrefix, "failed to read connection parameters:", err)
-	}
-
 	postQuantum := false
 	if connectionParameters, ok := r.netw.GetConnectionParameters(); ok {
 		postQuantum = connectionParameters.PostQuantum
+	}
+
+	connectionParameters, err := r.ConnectionParameters.GetConnectionParameters()
+	if err != nil {
+		log.Println(internal.WarningPrefix, "failed to read connection parameters:", err)
 	}
 
 	return &pb.StatusResponse{
@@ -57,17 +57,21 @@ func (r *RPC) Status(context.Context, *pb.Empty) (*pb.StatusResponse, error) {
 		Hostname:        status.Hostname,
 		Name:            status.Name,
 		Country:         status.Country,
+		CountryCode:     status.CountryCode,
 		City:            status.City,
 		Download:        status.Download,
 		Upload:          status.Upload,
 		Uptime:          uptime,
 		VirtualLocation: status.VirtualLocation,
+		Obfuscated:      status.Obfuscated,
+		PostQuantum:     postQuantum,
 		Parameters: &pb.ConnectionParameters{
-			Source:  connectionParameters.ConnectionSource,
-			Country: connectionParameters.Parameters.Country,
-			City:    connectionParameters.Parameters.City,
-			Group:   connectionParameters.Parameters.Group,
+			Source:         connectionParameters.ConnectionSource,
+			Country:        connectionParameters.Parameters.Country,
+			CountryCode:    connectionParameters.Parameters.CountryCode,
+			City:           connectionParameters.Parameters.City,
+			Group:          connectionParameters.Parameters.Group,
+			ServerHostName: connectionParameters.Parameters.City,
 		},
-		PostQuantum: postQuantum,
 	}, nil
 }

@@ -147,6 +147,7 @@ func (r *RPC) connect(
 		Hostname:          server.Hostname,
 		Name:              server.Name,
 		Country:           country.Name,
+		CountryCode:       country.Code,
 		City:              city,
 		Protocol:          cfg.AutoConnectData.Protocol,
 		NordLynxPublicKey: server.NordLynxPublicKey,
@@ -161,6 +162,7 @@ func (r *RPC) connect(
 	event.ServerFromAPI = remote
 	event.TargetServerCity = country.City.Name
 	event.TargetServerCountry = country.Name
+	event.TargetServerCountryCode = country.Code
 	event.TargetServerDomain = server.Hostname
 	event.TargetServerIP = subnet.Addr().String()
 	event.DurationMs = max(int(time.Since(connectingStartTime).Milliseconds()), 1)
@@ -203,7 +205,6 @@ func (r *RPC) connect(
 		)),
 		true, // here vpn connect - enable routing to local LAN
 	)
-
 	if err != nil {
 		event.DurationMs = max(int(time.Since(connectingStartTime).Milliseconds()), 1)
 		event.Error = err

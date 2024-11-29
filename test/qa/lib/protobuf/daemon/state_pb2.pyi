@@ -16,24 +16,24 @@ class ConnectionState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CONNECTING: _ClassVar[ConnectionState]
     CONNECTED: _ClassVar[ConnectionState]
 
-class UpdateEvent(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    SERVERS_LIST_UPDATE: _ClassVar[UpdateEvent]
-
 class LoginEventType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     LOGIN: _ClassVar[LoginEventType]
     LOGOUT: _ClassVar[LoginEventType]
+
+class UpdateEvent(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SERVERS_LIST_UPDATE: _ClassVar[UpdateEvent]
 FAILED_TO_GET_UID: AppStateError
 DISCONNECTED: ConnectionState
 CONNECTING: ConnectionState
 CONNECTED: ConnectionState
-SERVERS_LIST_UPDATE: UpdateEvent
 LOGIN: LoginEventType
 LOGOUT: LoginEventType
+SERVERS_LIST_UPDATE: UpdateEvent
 
 class ConnectionStatus(_message.Message):
-    __slots__ = ("state", "server_ip", "server_country", "server_city", "server_hostname", "server_name", "is_mesh_peer", "by_user")
+    __slots__ = ("state", "server_ip", "server_country", "server_city", "server_hostname", "server_name", "is_mesh_peer", "by_user", "server_country_code")
     STATE_FIELD_NUMBER: _ClassVar[int]
     SERVER_IP_FIELD_NUMBER: _ClassVar[int]
     SERVER_COUNTRY_FIELD_NUMBER: _ClassVar[int]
@@ -42,6 +42,7 @@ class ConnectionStatus(_message.Message):
     SERVER_NAME_FIELD_NUMBER: _ClassVar[int]
     IS_MESH_PEER_FIELD_NUMBER: _ClassVar[int]
     BY_USER_FIELD_NUMBER: _ClassVar[int]
+    SERVER_COUNTRY_CODE_FIELD_NUMBER: _ClassVar[int]
     state: ConnectionState
     server_ip: str
     server_country: str
@@ -50,7 +51,8 @@ class ConnectionStatus(_message.Message):
     server_name: str
     is_mesh_peer: bool
     by_user: bool
-    def __init__(self, state: _Optional[_Union[ConnectionState, str]] = ..., server_ip: _Optional[str] = ..., server_country: _Optional[str] = ..., server_city: _Optional[str] = ..., server_hostname: _Optional[str] = ..., server_name: _Optional[str] = ..., is_mesh_peer: bool = ..., by_user: bool = ...) -> None: ...
+    server_country_code: str
+    def __init__(self, state: _Optional[_Union[ConnectionState, str]] = ..., server_ip: _Optional[str] = ..., server_country: _Optional[str] = ..., server_city: _Optional[str] = ..., server_hostname: _Optional[str] = ..., server_name: _Optional[str] = ..., is_mesh_peer: bool = ..., by_user: bool = ..., server_country_code: _Optional[str] = ...) -> None: ...
 
 class LoginEvent(_message.Message):
     __slots__ = ("type",)
@@ -58,16 +60,24 @@ class LoginEvent(_message.Message):
     type: LoginEventType
     def __init__(self, type: _Optional[_Union[LoginEventType, str]] = ...) -> None: ...
 
+class AccountModification(_message.Message):
+    __slots__ = ("expires_at",)
+    EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
+    expires_at: str
+    def __init__(self, expires_at: _Optional[str] = ...) -> None: ...
+
 class AppState(_message.Message):
-    __slots__ = ("error", "connection_status", "login_event", "settings_change", "update_event")
+    __slots__ = ("error", "connection_status", "login_event", "settings_change", "update_event", "account_modification")
     ERROR_FIELD_NUMBER: _ClassVar[int]
     CONNECTION_STATUS_FIELD_NUMBER: _ClassVar[int]
     LOGIN_EVENT_FIELD_NUMBER: _ClassVar[int]
     SETTINGS_CHANGE_FIELD_NUMBER: _ClassVar[int]
     UPDATE_EVENT_FIELD_NUMBER: _ClassVar[int]
+    ACCOUNT_MODIFICATION_FIELD_NUMBER: _ClassVar[int]
     error: AppStateError
     connection_status: ConnectionStatus
     login_event: LoginEvent
     settings_change: _settings_pb2.Settings
     update_event: UpdateEvent
-    def __init__(self, error: _Optional[_Union[AppStateError, str]] = ..., connection_status: _Optional[_Union[ConnectionStatus, _Mapping]] = ..., login_event: _Optional[_Union[LoginEvent, _Mapping]] = ..., settings_change: _Optional[_Union[_settings_pb2.Settings, _Mapping]] = ..., update_event: _Optional[_Union[UpdateEvent, str]] = ...) -> None: ...
+    account_modification: AccountModification
+    def __init__(self, error: _Optional[_Union[AppStateError, str]] = ..., connection_status: _Optional[_Union[ConnectionStatus, _Mapping]] = ..., login_event: _Optional[_Union[LoginEvent, _Mapping]] = ..., settings_change: _Optional[_Union[_settings_pb2.Settings, _Mapping]] = ..., update_event: _Optional[_Union[UpdateEvent, str]] = ..., account_modification: _Optional[_Union[AccountModification, _Mapping]] = ...) -> None: ...

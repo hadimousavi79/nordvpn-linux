@@ -69,6 +69,7 @@ type DataConnect struct {
 	Technology                 config.Technology
 	TargetServerCity           string
 	TargetServerCountry        string
+	TargetServerCountryCode    string
 	TargetServerDomain         string
 	TargetServerGroup          string
 	TargetServerIP             string
