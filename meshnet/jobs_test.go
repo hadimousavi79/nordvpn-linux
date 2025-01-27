@@ -91,7 +91,7 @@ type meshCheckerStub struct {
 	isMeshnetOn bool
 }
 
-func (m meshCheckerStub) isMeshOn() bool {
+func (m meshCheckerStub) IsMeshnetOn() bool {
 	return m.isMeshnetOn
 }
 

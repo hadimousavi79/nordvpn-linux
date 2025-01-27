@@ -187,7 +187,7 @@ func newMockedServer(
 	loadConfigErr error,
 	saveConfigErr error,
 	configureErr error,
-	isMeshOn bool,
+	IsMeshnetOn bool,
 	peers []mesh.MachinePeer,
 ) *Server {
 	t.Helper()

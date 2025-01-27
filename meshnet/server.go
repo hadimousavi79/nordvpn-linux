@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -22,7 +23,9 @@ import (
 	daemonevents "github.com/NordSecurity/nordvpn-linux/daemon/events"
 	"github.com/NordSecurity/nordvpn-linux/daemon/vpn"
 	"github.com/NordSecurity/nordvpn-linux/events"
+
 	"github.com/NordSecurity/nordvpn-linux/internal"
+	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
 	"github.com/NordSecurity/nordvpn-linux/meshnet/pb"
 	"github.com/NordSecurity/nordvpn-linux/norduser/service"
 	"github.com/NordSecurity/nordvpn-linux/sharedctx"
@@ -49,11 +52,11 @@ type Server struct {
 	pub               events.Publisher[error]
 	subjectPeerUpdate events.Publisher[[]string]
 	daemonEvents      *daemonevents.Events
-	lastPeers         string
 	lastConnectedPeer string
 	norduser          service.NorduserFileshareClient
 	scheduler         gocron.Scheduler
 	connectContext    *sharedctx.Context
+	dataManager       meshInternal.MeshnetDataManager
 	pb.UnimplementedMeshnetServer
 }
 
@@ -71,6 +74,7 @@ func NewServer(
 	deemonEvents *daemonevents.Events,
 	norduser service.NorduserFileshareClient,
 	connectContext *sharedctx.Context,
+	dataManager meshInternal.MeshnetDataManager,
 ) *Server {
 	scheduler, _ := gocron.NewScheduler(gocron.WithLocation(time.UTC))
 	return &Server{
@@ -87,6 +91,7 @@ func NewServer(
 		norduser:          norduser,
 		scheduler:         scheduler,
 		connectContext:    connectContext,
+		dataManager:       dataManager,
 	}
 }
 
@@ -970,7 +975,7 @@ func (s *Server) GetInvites(context.Context, *pb.Empty) (*pb.GetInvitesResponse,
 }
 
 // isMeshOn load config and check if mesh is enabled
-func (s *Server) isMeshOn() bool {
+func (s *Server) IsMeshnetOn() bool {
 	var cfg config.Config
 	if err := s.cm.Load(&cfg); err != nil {
 		return false
@@ -980,12 +985,21 @@ func (s *Server) isMeshOn() bool {
 
 // GetPeers returns a list of this machine meshnet peers
 func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, error) {
+	// get the peers list from the data manager
+	value, err := s.dataManager.GetMeshnetPeers()
+	if err != nil {
+		log.Println(internal.ErrorPrefix, "get peers failed with error", err)
+	}
+	return value, err
+}
+
+func (s *Server) FetchMeshnetPeers() *pb.GetPeersResponse {
 	if !s.ac.IsLoggedIn() {
 		return &pb.GetPeersResponse{
 			Response: &pb.GetPeersResponse_ServiceErrorCode{
 				ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
 			},
-		}, nil
+		}
 	}
 
 	var cfg config.Config
@@ -995,7 +1009,7 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 			Response: &pb.GetPeersResponse_ServiceErrorCode{
 				ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
 			},
-		}, nil
+		}
 	}
 
 	if !cfg.Mesh {
@@ -1003,7 +1017,7 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 			Response: &pb.GetPeersResponse_MeshnetErrorCode{
 				MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
 			},
-		}, nil
+		}
 	}
 
 	peers := pb.PeerList{}
@@ -1019,31 +1033,31 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 						Response: &pb.GetPeersResponse_ServiceErrorCode{
 							ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
 						},
-					}, nil
+					}
 				}
 				return &pb.GetPeersResponse{
 					Response: &pb.GetPeersResponse_ServiceErrorCode{
 						ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
 					},
-				}, nil
+				}
 			}
 			s.pub.Publish(fmt.Errorf("listing local peers (@GetPeers): %w", err))
 
 			// Mesh could get disabled (when self is removed)
 			//  - check it and report it to the user properly.
-			if !s.isMeshOn() {
+			if !s.IsMeshnetOn() {
 				return &pb.GetPeersResponse{
 					Response: &pb.GetPeersResponse_MeshnetErrorCode{
 						MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
 					},
-				}, nil
+				}
 			}
 
 			return &pb.GetPeersResponse{
 				Response: &pb.GetPeersResponse_ServiceErrorCode{
 					ServiceErrorCode: pb.ServiceErrorCode_API_FAILURE,
 				},
-			}, nil
+			}
 		}
 
 		for _, peer := range resp {
@@ -1060,31 +1074,31 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 						Response: &pb.GetPeersResponse_ServiceErrorCode{
 							ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
 						},
-					}, nil
+					}
 				}
 				return &pb.GetPeersResponse{
 					Response: &pb.GetPeersResponse_ServiceErrorCode{
 						ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
 					},
-				}, nil
+				}
 			}
 			s.pub.Publish(fmt.Errorf("listing peers (@GetPeers): %w", err))
 
 			// Mesh could get disabled (when self is removed)
 			//  - check it and report it to the user properly.
-			if !s.isMeshOn() {
+			if !s.IsMeshnetOn() {
 				return &pb.GetPeersResponse{
 					Response: &pb.GetPeersResponse_MeshnetErrorCode{
 						MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
 					},
-				}, nil
+				}
 			}
 
 			return &pb.GetPeersResponse{
 				Response: &pb.GetPeersResponse_ServiceErrorCode{
 					ServiceErrorCode: pb.ServiceErrorCode_API_FAILURE,
 				},
-			}, nil
+			}
 		}
 
 		peers.Self = cfg.MeshDevice.ToProtobuf()
@@ -1107,16 +1121,11 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 		}
 	}
 
-	if s.lastPeers != peers.String() {
-		s.lastPeers = peers.String()
-		s.subjectPeerUpdate.Publish(nil)
-	}
-
 	return &pb.GetPeersResponse{
 		Response: &pb.GetPeersResponse_Peers{
 			Peers: &peers,
 		},
-	}, nil
+	}
 }
 
 func (s *Server) RemovePeer(
@@ -1164,7 +1173,7 @@ func (s *Server) RemovePeer(
 
 			// Mesh could get disabled (when self is removed)
 			//  - check it and report it to the user properly.
-			if !s.isMeshOn() {
+			if !s.IsMeshnetOn() {
 				return &pb.RemovePeerResponse{
 					Response: &pb.RemovePeerResponse_MeshnetErrorCode{
 						MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -1236,7 +1245,7 @@ func (s *Server) RemovePeer(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.RemovePeerResponse{
 				Response: &pb.RemovePeerResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -1680,7 +1689,7 @@ func (s *Server) AllowIncoming(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.AllowIncomingResponse{
 				Response: &pb.AllowIncomingResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -1913,7 +1922,7 @@ func (s *Server) AllowRouting(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.AllowRoutingResponse{
 				Response: &pb.AllowRoutingResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2037,7 +2046,7 @@ func (s *Server) DenyRouting(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.DenyRoutingResponse{
 				Response: &pb.DenyRoutingResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2161,7 +2170,7 @@ func (s *Server) AllowLocalNetwork(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.AllowLocalNetworkResponse{
 				Response: &pb.AllowLocalNetworkResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2285,7 +2294,7 @@ func (s *Server) DenyLocalNetwork(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.DenyLocalNetworkResponse{
 				Response: &pb.DenyLocalNetworkResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2409,7 +2418,7 @@ func (s *Server) AllowFileshare(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.AllowFileshareResponse{
 				Response: &pb.AllowFileshareResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2537,7 +2546,7 @@ func (s *Server) DenyFileshare(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.DenyFileshareResponse{
 				Response: &pb.DenyFileshareResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2665,7 +2674,7 @@ func (s *Server) EnableAutomaticFileshare(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.EnableAutomaticFileshareResponse{
 				Response: &pb.EnableAutomaticFileshareResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2782,7 +2791,7 @@ func (s *Server) DisableAutomaticFileshare(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.DisableAutomaticFileshareResponse{
 				Response: &pb.DisableAutomaticFileshareResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -2899,7 +2908,7 @@ func (s *Server) NotifyNewTransfer(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.NotifyNewTransferResponse{
 				Response: &pb.NotifyNewTransferResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
@@ -3041,7 +3050,7 @@ func (s *Server) connect(
 
 		// Mesh could get disabled (when self is removed)
 		//  - check it and report it to the user properly.
-		if !s.isMeshOn() {
+		if !s.IsMeshnetOn() {
 			return &pb.ConnectResponse{
 				Response: &pb.ConnectResponse_MeshnetErrorCode{
 					MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,

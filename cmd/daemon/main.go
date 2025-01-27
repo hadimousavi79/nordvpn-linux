@@ -30,6 +30,7 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/allowlist"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/iptables"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/notables"
+	"github.com/NordSecurity/nordvpn-linux/daemon/models"
 	"github.com/NordSecurity/nordvpn-linux/daemon/netstate"
 	"github.com/NordSecurity/nordvpn-linux/daemon/pb"
 	"github.com/NordSecurity/nordvpn-linux/daemon/response"
@@ -449,6 +450,7 @@ func main() {
 		daemon.CountryDataFilePath,
 		daemon.VersionFilePath,
 		dataUpdateEvents,
+		models.NewCachedValue(nil, errors.New("empty"), time.Time{}, internal.MeshnetPeersUpdateInterval, func(cv *models.CachedValue[*meshpb.GetPeersResponse]) {}),
 	)
 
 	sharedContext := sharedctx.New()
@@ -491,6 +493,7 @@ func main() {
 		daemonEvents,
 		norduserClient,
 		sharedContext,
+		dm,
 	)
 
 	opts := []grpc.ServerOption{
@@ -577,7 +580,7 @@ func main() {
 		}
 	}()
 	rpc.StartJobs(statePublisher, heartBeatSubject)
-	meshService.StartJobs()
+	meshService.StartJobs(daemonEvents.Settings.Meshnet)
 	rpc.StartKillSwitch()
 	if internal.IsSystemd() {
 		go rpc.StartSystemShutdownMonitor()

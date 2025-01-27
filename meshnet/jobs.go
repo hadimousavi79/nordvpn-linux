@@ -6,10 +6,17 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 
+	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/internal"
+	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
+	"github.com/NordSecurity/nordvpn-linux/meshnet/jobs"
 )
 
-func (s *Server) StartJobs() {
+const ()
+
+func (s *Server) StartJobs(
+	meshnetPublisher events.PublishSubcriber[bool],
+) {
 	if _, err := s.scheduler.NewJob(gocron.DurationJob(2*time.Hour), gocron.NewTask(JobRefreshMeshnet(s)), gocron.WithName("job refresh meshnet")); err != nil {
 		log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
 	}
@@ -28,6 +35,34 @@ func (s *Server) StartJobs() {
 			log.Println(internal.WarningPrefix, job.Name(), "first run error:", err)
 		}
 	}
+
+	// monitors the meshnet status and starts/stops the peers refreshing job
+	meshnetPublisher.Subscribe(func(enabled bool) error {
+		// TODO: check what happens if meshnet is started
+		if enabled {
+			job, err := s.scheduler.NewJob(
+				gocron.DurationRandomJob(internal.MeshnetPeersUpdateInterval/2, internal.MeshnetPeersUpdateInterval),
+				gocron.NewTask(jobs.JobUpdateMeshnetPeers(s, s, s.dataManager, s.subjectPeerUpdate)),
+				gocron.WithName("refresh peers"),
+				gocron.WithTags(internal.MeshnetPeersJobTag),
+			)
+			if err != nil {
+				log.Println(internal.ErrorPrefix, "failed to schedule peers refresh job", err)
+				return err
+			}
+
+			log.Println(internal.DebugPrefix, "peers refresh job scheduled")
+
+			if err := job.RunNow(); err != nil {
+				log.Println(internal.ErrorPrefix, "failed to run peers refresh job", err)
+				return err
+			}
+		} else {
+			s.scheduler.RemoveByTags(internal.MeshnetPeersJobTag)
+			log.Println(internal.DebugPrefix, "stop peer refresh job")
+		}
+		return nil
+	})
 }
 
 func JobRefreshMeshnet(s *Server) func() error {
@@ -49,7 +84,7 @@ func JobMonitorFileshareProcess(s *Server) func() error {
 }
 
 func (j *monitorFileshareProcessJob) run() error {
-	if !j.meshChecker.isMeshOn() {
+	if !j.meshChecker.IsMeshnetOn() {
 		if j.isFileshareAllowed {
 			if err := j.rulesController.ForbidFileshare(); err == nil {
 				j.isFileshareAllowed = false
@@ -77,13 +112,9 @@ func (defaultProcessChecker) isFileshareRunning() bool {
 
 type monitorFileshareProcessJob struct {
 	isFileshareAllowed bool
-	meshChecker        meshChecker
+	meshChecker        meshInternal.MeshnetChecker
 	rulesController    rulesController
 	processChecker     processChecker
-}
-
-type meshChecker interface {
-	isMeshOn() bool
 }
 
 type rulesController interface {

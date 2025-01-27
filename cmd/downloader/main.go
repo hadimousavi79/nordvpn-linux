@@ -26,7 +26,7 @@ var Salt = ""
 func main() {
 	dataPath := os.Args[1]
 	cm := config.NewFilesystemConfigManager(config.SettingsDataFilePath, config.InstallFilePath, Salt, config.NewMachineID(os.ReadFile, os.Hostname), config.StdFilesystemHandle{}, nil)
-	dm := daemon.NewDataManager(dataPath+InsightsFilename, dataPath+ServersFilename, dataPath+countriesFilename, "", events.NewDataUpdateEvents())
+	dm := daemon.NewDataManager(dataPath+InsightsFilename, dataPath+ServersFilename, dataPath+countriesFilename, "", events.NewDataUpdateEvents(), nil)
 	client := request.NewStdHTTP()
 	validator, err := response.NewNordValidator()
 	if err != nil {

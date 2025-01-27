@@ -12,8 +12,10 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/core"
 	"github.com/NordSecurity/nordvpn-linux/daemon/events"
+	"github.com/NordSecurity/nordvpn-linux/daemon/models"
 	"github.com/NordSecurity/nordvpn-linux/daemon/pb"
 	"github.com/NordSecurity/nordvpn-linux/internal"
+	meshnet "github.com/NordSecurity/nordvpn-linux/meshnet/pb"
 
 	"github.com/coreos/go-semver/semver"
 	mapset "github.com/deckarep/golang-set/v2"
@@ -32,19 +34,23 @@ type DataManager struct {
 	versionData      VersionData
 	dataUpdateEvents *events.DataUpdateEvents
 	mu               sync.Mutex
+	meshnetPeers     *models.CachedValue[*meshnet.GetPeersResponse]
 }
 
 func NewDataManager(insightsFilePath,
 	serversFilePath,
 	countryFilePath,
 	versionFilePath string,
-	dataUpdateEvents *events.DataUpdateEvents) *DataManager {
+	dataUpdateEvents *events.DataUpdateEvents,
+	meshnetPeers *models.CachedValue[*meshnet.GetPeersResponse],
+) *DataManager {
 	return &DataManager{
 		countryData:      CountryData{filePath: countryFilePath},
 		insightsData:     InsightsData{filePath: insightsFilePath},
 		serversData:      ServersData{filePath: serversFilePath},
 		versionData:      VersionData{filePath: versionFilePath},
 		dataUpdateEvents: dataUpdateEvents,
+		meshnetPeers:     meshnetPeers,
 	}
 }
 
@@ -379,4 +385,12 @@ func (dm *DataManager) CountryCodeToCountryName(code string) string {
 	}
 
 	return ""
+}
+
+func (dm *DataManager) GetMeshnetPeers() (*meshnet.GetPeersResponse, error) {
+	return dm.meshnetPeers.Get()
+}
+
+func (dm *DataManager) SetMeshnetPeers(peers *meshnet.GetPeersResponse, err error) bool {
+	return dm.meshnetPeers.Set(peers, err)
 }
