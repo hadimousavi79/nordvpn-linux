@@ -57,7 +57,7 @@ func (r *RPC) Logout(ctx context.Context, in *pb.LogoutRequest) (payload *pb.Pay
 		return &pb.Payload{Type: internal.CodeFailure}, nil
 	}
 
-	if !r.ncClient.Revoke(internal.IsDevEnv(string(r.environment))) {
+	if !r.ncClient.Revoke() {
 		log.Println(internal.WarningPrefix, "error revoking NC token")
 	}
 
@@ -103,6 +103,7 @@ func (r *RPC) Logout(ctx context.Context, in *pb.LogoutRequest) (payload *pb.Pay
 		delete(c.TokensData, c.AutoConnectData.ID)
 		c.AutoConnectData.ID = 0
 		c.Mesh = false
+		c.MeshPrivateKey = ""
 		return c
 	}); err != nil {
 		return nil, err

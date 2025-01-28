@@ -207,7 +207,7 @@ def test_fileshare_transfer(filesystem_entity: fileshare.FileSystemEntity, backg
     # │       └── file
 
     wdir = fileshare.create_directory(0)
-    wfolder = fileshare.create_directory(2, "tmp", parent_dir=wdir.dir_path, file_size="128M")
+    wfolder = fileshare.create_directory(2, "tmp", parent_dir=wdir.dir_path, file_size=128)
 
     if filesystem_entity == fileshare.FileSystemEntity.FILE:
         filepath = wfolder.paths[0]
@@ -297,7 +297,7 @@ def test_fileshare_transfer_multiple_files(background_send: bool, path_flag: str
     peer_name = random.choice(list(meshnet.PeerName)[:-1])
     peer_address = meshnet.PeerList.from_str(sh.nordvpn.mesh.peer.list()).get_internal_peer().get_peer_name(peer_name)
 
-    file_size = "22M"
+    file_size = 22
     dir1 = fileshare.create_directory(0, "1")
     dir2 = fileshare.create_directory(2, "2", dir1.dir_path)
     dir3 = fileshare.create_directory(2, "3", file_size=file_size)
@@ -420,7 +420,7 @@ def test_fileshare_transfer_multiple_files_selective_accept(background: bool, ac
     # │       └── file
     # │       └── file
 
-    file_size = "128M"
+    file_size = 128
 
     wfolder_1 = fileshare.create_directory(2, "1", file_size=file_size)
     wfolder_2 = fileshare.create_directory(2, "2", file_size=file_size)
@@ -606,7 +606,7 @@ def test_fileshare_graceful_cancel(transfer_entity: fileshare.FileSystemEntity):
 @pytest.mark.parametrize("sender_cancels", [False, True], ids=["receiver_cancels", "sender_cancels"])
 @pytest.mark.parametrize("transfer_entity", list(fileshare.FileSystemEntity), ids = [f"send_{entity.value}" for entity in list(fileshare.FileSystemEntity)])
 def test_fileshare_graceful_cancel_transfer_ongoing(sender_cancels: bool, transfer_entity: fileshare.FileSystemEntity):
-    file_size = "256M"
+    file_size = 256
     wdir = fileshare.create_directory(0)
     wfolder = fileshare.create_directory(2, parent_dir=wdir.dir_path, file_size=file_size)
 
@@ -1165,14 +1165,14 @@ def test_autoaccept(transfer_entity: fileshare.FileSystemEntity):
 
     host_address = peer_list.get_this_device().ip
 
-    wdir = ssh_client.io.create_directory(0)
-    wfolder = ssh_client.io.create_directory(2, parent_dir=wdir.dir_path)
+    wdir = fileshare.create_directory(0, ssh_client=ssh_client)
+    wfolder = fileshare.create_directory(2, parent_dir=wdir.dir_path, ssh_client=ssh_client)
 
     if transfer_entity == fileshare.FileSystemEntity.FILE:
         path = wfolder.paths[0]
         expected_files = [wfolder.filenames[0]]
     elif transfer_entity == fileshare.FileSystemEntity.FOLDER_WITH_FILES:
-        wfolder = ssh_client.io.create_directory(2)
+        wfolder = fileshare.create_directory(2, ssh_client=ssh_client)
         path = wfolder.dir_path
         expected_files = wfolder.transfer_paths
     elif transfer_entity == fileshare.FileSystemEntity.DIRECTORY_WITH_FOLDERS:
@@ -1347,26 +1347,57 @@ def test_clear():
     assert len(lines_outgoing) == 3, str(lines_outgoing)
 
 
-def test_fileshare_process_monitoring():
-    # port is open when fileshare is running
-    rules = os.popen("sudo iptables -S").read()
-    assert "49111 -m comment --comment nordvpn-meshnet -j ACCEPT" in rules
+def test_fileshare_process_monitoring_manages_fileshare_rules_on_process_state_changes():
+    try:
+        # port is open when fileshare is running
+        assert fileshare.port_is_allowed()
 
-    sh.pkill("-SIGKILL", "nordfileshare")
-    # at the time of writing, the monitoring job is executed periodically every 5 seconds,
-    # wait for 10 to be sure the job executed
-    time.sleep(10)
+        sh.pkill("-SIGKILL", "nordfileshare")
+        # at the time of writing, the monitoring job is executed periodically every second,
+        # wait for 2 seconds to be sure the job executed
+        time.sleep(2)
 
-    # port is not allowed when fileshare is down
-    rules = os.popen("sudo iptables -S").read()
-    assert "49111 -m comment --comment nordvpn-meshnet -j ACCEPT" not in rules
+        # port is not allowed when fileshare is down
+        assert fileshare.port_is_blocked()
 
-    os.popen("/usr/lib/nordvpn/nordfileshare &")
-    time.sleep(10)
+        # restart meshet to get fileshare back up
+        fileshare.restart_mesh()
 
-    # port is allowed again when fileshare process is up
-    rules = os.popen("sudo iptables -S").read()
-    assert "49111 -m comment --comment nordvpn-meshnet -j ACCEPT" in rules
+        # port is allowed again when fileshare process is up
+        assert fileshare.port_is_allowed()
+    finally: # meshnet should be on for most of the tests in this module
+        fileshare.ensure_mesh_is_on()
+
+
+@pytest.mark.skip(reason="LVPN-6691")
+def test_fileshare_process_monitoring_cuts_the_port_access_even_when_it_was_taken_before():
+    try:
+        # stop meshnet to bind to 49111 first
+        sh.nordvpn.set.meshnet.off()
+        time.sleep(2)
+        assert fileshare.port_is_blocked()
+
+        # bind to port before fileshare process starts
+        sock = fileshare.bind_port()
+        assert sock is not None
+
+        # start meshnet
+        sh.nordvpn.set.meshnet.on() # now fileshare tries to start but fails because the port is taken
+        time.sleep(2)
+
+        # port should not be allowed (fileshare is down)
+        assert fileshare.port_is_blocked()
+
+        # free the port
+        sock.close()
+
+        # restart meshnet, now fileshare can start properly
+        fileshare.restart_mesh()
+
+        # fileshare is up so port is allowed
+        assert fileshare.port_is_allowed()
+    finally: # meshnet should be on for most of the tests in this module
+        fileshare.ensure_mesh_is_on()
 
 
 @pytest.mark.parametrize("background_accept", [True, False], ids=["accept_bg", "accept_int"])
