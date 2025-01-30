@@ -144,11 +144,11 @@ var (
 
 	NorduserdBinaryPath = filepath.Join(AppDataPathStatic, Norduserd)
 
-	// How often will meshnet peers get updated from the API
-	MeshnetPeersUpdateInterval = 30 * time.Second
+	// How often will meshnet map be updated from the API
+	MeshnetMapUpdateInterval = 5 * time.Minute
 
-	// The tag of the update peer job
-	MeshnetPeersJobTag = "meshnet-peers"
+	// The tag assigned to the job to update meshnet map
+	MeshnetMapJobTag = "meshnet-map"
 )
 
 func GetSupportedIPTables() []string {

@@ -386,38 +386,57 @@ func (s *Server) DisableMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 
 // RefreshMeshnet updates peer configuration.
 func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse, error) {
+	_, err := s.RefreshMeshnetMap()
+	if err != nil {
+		var meshnetError *internal.GenericError[*pb.MeshnetResponse_MeshnetError]
+		if errors.As(err, &meshnetError) {
+			return &pb.MeshnetResponse{
+				Response: meshnetError.Value,
+			}, nil
+		}
+
+		var serviceError *internal.GenericError[*pb.MeshnetResponse_ServiceError]
+		if errors.As(err, &serviceError) {
+			return &pb.MeshnetResponse{
+				Response: serviceError.Value,
+			}, nil
+		}
+
+		log.Println(internal.ErrorPrefix, "failed to fetch meshnet map", err)
+
+		return nil, err
+	}
+
+	return &pb.MeshnetResponse{
+		Response: &pb.MeshnetResponse_Empty{},
+	}, nil
+}
+
+func (s *Server) RefreshMeshnetMap() (*mesh.MachineMap, error) {
 	if !s.ac.IsLoggedIn() {
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_ServiceError{
-				ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
-			},
-		}, nil
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
+		})
 	}
 
 	var cfg config.Config
 	if err := s.cm.Load(&cfg); err != nil {
 		s.pub.Publish(err)
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_ServiceError{
-				ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
-			},
-		}, nil
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
+		})
 	}
 
 	if !cfg.Mesh {
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_MeshnetError{
-				MeshnetError: pb.MeshnetErrorCode_NOT_ENABLED,
-			},
-		}, nil
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
+			MeshnetError: pb.MeshnetErrorCode_NOT_ENABLED,
+		})
 	}
 
 	if !s.mc.IsRegistrationInfoCorrect() {
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_MeshnetError{
-				MeshnetError: pb.MeshnetErrorCode_NOT_REGISTERED,
-			},
-		}, nil
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
+			MeshnetError: pb.MeshnetErrorCode_NOT_REGISTERED,
+		})
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
@@ -426,38 +445,30 @@ func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
 				s.pub.Publish(err)
-				return &pb.MeshnetResponse{
-					Response: &pb.MeshnetResponse_ServiceError{
-						ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
-					},
-				}, nil
+				return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+					ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
+				})
 			}
-			return &pb.MeshnetResponse{
-				Response: &pb.MeshnetResponse_ServiceError{
-					ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
-				},
-			}, nil
+			return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+				ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
+			})
 		}
 		s.pub.Publish(err)
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_ServiceError{
-				ServiceError: pb.ServiceErrorCode_API_FAILURE,
-			},
-		}, nil
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_API_FAILURE,
+		})
 	}
 
-	if err := s.netw.Refresh(*resp); err != nil {
-		s.pub.Publish(err)
-		return &pb.MeshnetResponse{
-			Response: &pb.MeshnetResponse_ServiceError{
+	if s.dataManager.SetMeshnetMap(resp, nil) {
+		if err := s.netw.Refresh(*resp); err != nil {
+			s.pub.Publish(err)
+			return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 				ServiceError: pb.ServiceErrorCode_API_FAILURE,
-			},
-		}, nil
+			})
+		}
 	}
 
-	return &pb.MeshnetResponse{
-		Response: &pb.MeshnetResponse_Empty{},
-	}, nil
+	return resp, nil
 }
 
 // Invite another peer

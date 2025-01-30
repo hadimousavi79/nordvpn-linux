@@ -450,7 +450,7 @@ func main() {
 		daemon.CountryDataFilePath,
 		daemon.VersionFilePath,
 		dataUpdateEvents,
-		models.NewCachedValue(nil, errors.New("empty"), time.Time{}, internal.MeshnetPeersUpdateInterval, func(cv *models.CachedValue[*meshpb.GetPeersResponse]) {}),
+		models.NewCachedValue(nil, errors.New("empty"), time.Time{}, internal.MeshnetMapUpdateInterval, func(cv *models.CachedValue[*meshpb.GetPeersResponse]) {}),
 	)
 
 	sharedContext := sharedctx.New()

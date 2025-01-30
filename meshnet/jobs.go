@@ -17,10 +17,6 @@ const ()
 func (s *Server) StartJobs(
 	meshnetPublisher events.PublishSubcriber[bool],
 ) {
-	if _, err := s.scheduler.NewJob(gocron.DurationJob(2*time.Hour), gocron.NewTask(JobRefreshMeshnet(s)), gocron.WithName("job refresh meshnet")); err != nil {
-		log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
-	}
-
 	if _, err := s.scheduler.NewJob(
 		gocron.DurationJob(1*time.Second),
 		gocron.NewTask(JobMonitorFileshareProcess(s)),
@@ -40,11 +36,16 @@ func (s *Server) StartJobs(
 	meshnetPublisher.Subscribe(func(enabled bool) error {
 		// TODO: check what happens if meshnet is started
 		if enabled {
+
+			if _, err := s.scheduler.NewJob(gocron.DurationJob(2*time.Hour), gocron.NewTask(jobs.JobRefreshMeshnetMap()), gocron.WithName("job refresh meshnet")); err != nil {
+				log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
+			}
+
 			job, err := s.scheduler.NewJob(
-				gocron.DurationRandomJob(internal.MeshnetPeersUpdateInterval/2, internal.MeshnetPeersUpdateInterval),
-				gocron.NewTask(jobs.JobUpdateMeshnetPeers(s, s, s.dataManager, s.subjectPeerUpdate)),
-				gocron.WithName("refresh peers"),
-				gocron.WithTags(internal.MeshnetPeersJobTag),
+				gocron.DurationJob(internal.MeshnetMapUpdateInterval),
+				gocron.NewTask(jobs.JobRefreshMeshnetMap(s, s, s.dataManager, s.subjectPeerUpdate)),
+				gocron.WithName("refresh meshnet map"),
+				gocron.WithTags(internal.MeshnetMapJobTag),
 			)
 			if err != nil {
 				log.Println(internal.ErrorPrefix, "failed to schedule peers refresh job", err)
@@ -63,14 +64,6 @@ func (s *Server) StartJobs(
 		}
 		return nil
 	})
-}
-
-func JobRefreshMeshnet(s *Server) func() error {
-	return func() error {
-		// ignore what is returned, try to do it here as light as possible
-		_, _ = s.RefreshMeshnet(nil, nil)
-		return nil
-	}
 }
 
 func JobMonitorFileshareProcess(s *Server) func() error {

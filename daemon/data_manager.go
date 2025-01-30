@@ -11,11 +11,11 @@ import (
 
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/core"
+	"github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon/events"
 	"github.com/NordSecurity/nordvpn-linux/daemon/models"
 	"github.com/NordSecurity/nordvpn-linux/daemon/pb"
 	"github.com/NordSecurity/nordvpn-linux/internal"
-	meshnet "github.com/NordSecurity/nordvpn-linux/meshnet/pb"
 
 	"github.com/coreos/go-semver/semver"
 	mapset "github.com/deckarep/golang-set/v2"
@@ -34,7 +34,7 @@ type DataManager struct {
 	versionData      VersionData
 	dataUpdateEvents *events.DataUpdateEvents
 	mu               sync.Mutex
-	meshnetPeers     *models.CachedValue[*meshnet.GetPeersResponse]
+	meshnetMap       *models.CachedValue[*mesh.MachineMap]
 }
 
 func NewDataManager(insightsFilePath,
@@ -42,7 +42,7 @@ func NewDataManager(insightsFilePath,
 	countryFilePath,
 	versionFilePath string,
 	dataUpdateEvents *events.DataUpdateEvents,
-	meshnetPeers *models.CachedValue[*meshnet.GetPeersResponse],
+	meshnetMap *models.CachedValue[*mesh.MachineMap],
 ) *DataManager {
 	return &DataManager{
 		countryData:      CountryData{filePath: countryFilePath},
@@ -50,7 +50,7 @@ func NewDataManager(insightsFilePath,
 		serversData:      ServersData{filePath: serversFilePath},
 		versionData:      VersionData{filePath: versionFilePath},
 		dataUpdateEvents: dataUpdateEvents,
-		meshnetPeers:     meshnetPeers,
+		meshnetMap:       meshnetMap,
 	}
 }
 
@@ -387,10 +387,10 @@ func (dm *DataManager) CountryCodeToCountryName(code string) string {
 	return ""
 }
 
-func (dm *DataManager) GetMeshnetPeers() (*meshnet.GetPeersResponse, error) {
-	return dm.meshnetPeers.Get()
+func (dm *DataManager) GetMeshnetMap() (*mesh.MachineMap, error) {
+	return dm.meshnetMap.Get()
 }
 
-func (dm *DataManager) SetMeshnetPeers(peers *meshnet.GetPeersResponse, err error) bool {
-	return dm.meshnetPeers.Set(peers, err)
+func (dm *DataManager) SetMeshnetMap(peers *mesh.MachineMap, err error) bool {
+	return dm.meshnetMap.Set(peers, err)
 }
