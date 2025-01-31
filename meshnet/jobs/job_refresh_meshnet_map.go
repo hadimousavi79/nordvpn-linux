@@ -3,7 +3,6 @@ package jobs
 import (
 	"log"
 
-	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/internal"
 	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
 )
@@ -11,8 +10,6 @@ import (
 func JobRefreshMeshnetMap(
 	meshnetChecker meshInternal.MeshnetChecker,
 	fetcher meshInternal.MeshnetFetcher,
-	dm meshInternal.MeshnetDataManager,
-	publisher events.Publisher[[]string],
 ) func() {
 	return func() {
 		if !meshnetChecker.IsMeshnetOn() {

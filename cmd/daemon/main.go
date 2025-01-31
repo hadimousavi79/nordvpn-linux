@@ -49,7 +49,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/events/logger"
 	"github.com/NordSecurity/nordvpn-linux/events/meshunsetter"
-	"github.com/NordSecurity/nordvpn-linux/events/refresher"
 	"github.com/NordSecurity/nordvpn-linux/events/subs"
 	grpcmiddleware "github.com/NordSecurity/nordvpn-linux/grpc_middleware"
 	"github.com/NordSecurity/nordvpn-linux/internal"
@@ -413,10 +412,6 @@ func main() {
 		meshAPIex,
 	)
 
-	meshnetEvents.PeerUpdate.Subscribe(refresher.NewMeshnet(
-		meshAPIex, meshnetChecker, fsystem, netw,
-	).NotifyPeerUpdate)
-
 	meshUnsetter := meshunsetter.NewMeshnet(
 		fsystem,
 		netw,
@@ -581,7 +576,10 @@ func main() {
 		}
 	}()
 	rpc.StartJobs(statePublisher, heartBeatSubject)
-	meshService.StartJobs(daemonEvents.Settings.Meshnet)
+	meshnetEvents.PeerUpdate.Subscribe(func(s []string) error {
+		meshService.RefreshMeshnetMap()
+	})
+	meshService.StartJobs(daemonEvents.Settings.Meshnet, meshnetEvents)
 	rpc.StartKillSwitch()
 	if internal.IsSystemd() {
 		go rpc.StartSystemShutdownMonitor()
