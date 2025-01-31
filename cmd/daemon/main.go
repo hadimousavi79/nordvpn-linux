@@ -22,6 +22,7 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/auth"
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/core"
+	x "github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon"
 	"github.com/NordSecurity/nordvpn-linux/daemon/device"
 	"github.com/NordSecurity/nordvpn-linux/daemon/dns"
@@ -450,7 +451,7 @@ func main() {
 		daemon.CountryDataFilePath,
 		daemon.VersionFilePath,
 		dataUpdateEvents,
-		models.NewCachedValue(nil, errors.New("empty"), time.Time{}, internal.MeshnetMapUpdateInterval, func(cv *models.CachedValue[*meshpb.GetPeersResponse]) {}),
+		models.NewCachedValue[*x.MachineMap](nil, errors.New("empty"), time.Time{}, internal.MeshnetMapUpdateInterval, nil),
 	)
 
 	sharedContext := sharedctx.New()

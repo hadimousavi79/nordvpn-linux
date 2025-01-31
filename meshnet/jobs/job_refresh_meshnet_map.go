@@ -16,13 +16,13 @@ func JobRefreshMeshnetMap(
 ) func() {
 	return func() {
 		if !meshnetChecker.IsMeshnetOn() {
-			log.Println(internal.DebugPrefix, "updating meshnet peers when it is not enabled")
+			log.Println(internal.DebugPrefix, "updating meshnet map called when meshnet is not enabled")
 			return
 		}
 
 		_, err := fetcher.RefreshMeshnetMap()
 		if err != nil {
-			log.Println(internal.ErrorPrefix, "update meshnet map failed", err)
+			log.Println(internal.ErrorPrefix, "job update meshnet map failed", err)
 		}
 	}
 }

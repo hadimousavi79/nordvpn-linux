@@ -459,6 +459,7 @@ func (s *Server) RefreshMeshnetMap() (*mesh.MachineMap, error) {
 		})
 	}
 
+	// cache the response for later use
 	if s.dataManager.SetMeshnetMap(resp, nil) {
 		if err := s.netw.Refresh(*resp); err != nil {
 			s.pub.Publish(err)
@@ -996,21 +997,12 @@ func (s *Server) IsMeshnetOn() bool {
 
 // GetPeers returns a list of this machine meshnet peers
 func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, error) {
-	// get the peers list from the data manager
-	value, err := s.dataManager.GetMeshnetPeers()
-	if err != nil {
-		log.Println(internal.ErrorPrefix, "get peers failed with error", err)
-	}
-	return value, err
-}
-
-func (s *Server) FetchMeshnetPeers() *pb.GetPeersResponse {
 	if !s.ac.IsLoggedIn() {
 		return &pb.GetPeersResponse{
 			Response: &pb.GetPeersResponse_ServiceErrorCode{
 				ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
 			},
-		}
+		}, nil
 	}
 
 	var cfg config.Config
@@ -1020,7 +1012,7 @@ func (s *Server) FetchMeshnetPeers() *pb.GetPeersResponse {
 			Response: &pb.GetPeersResponse_ServiceErrorCode{
 				ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
 			},
-		}
+		}, nil
 	}
 
 	if !cfg.Mesh {
@@ -1028,107 +1020,50 @@ func (s *Server) FetchMeshnetPeers() *pb.GetPeersResponse {
 			Response: &pb.GetPeersResponse_MeshnetErrorCode{
 				MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
 			},
+		}, nil
+	}
+	// get the peers list from the data manager
+	meshnetMap, err := s.dataManager.GetMeshnetMap()
+
+	if err != nil {
+		log.Println(internal.ErrorPrefix, "get peers failed with error", err)
+
+		var meshnetError *internal.GenericError[*pb.MeshnetResponse_MeshnetError]
+		if errors.As(err, &meshnetError) {
+			return &pb.GetPeersResponse{
+				Response: &pb.GetPeersResponse_MeshnetErrorCode{MeshnetErrorCode: meshnetError.Value.MeshnetError},
+			}, nil
 		}
+
+		var serviceError *internal.GenericError[*pb.MeshnetResponse_ServiceError]
+		if errors.As(err, &serviceError) {
+			return &pb.GetPeersResponse{
+				Response: &pb.GetPeersResponse_ServiceErrorCode{ServiceErrorCode: serviceError.Value.ServiceError},
+			}, nil
+		}
+
+		return nil, err
+	}
+
+	peerMap, err := s.netw.StatusMap()
+	if err != nil {
+		peerMap = map[string]string{}
 	}
 
 	peers := pb.PeerList{}
-
-	if !s.mc.IsRegistrationInfoCorrect() {
-		token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-		resp, err := s.reg.Local(token)
-		if err != nil {
-			if errors.Is(err, core.ErrUnauthorized) {
-				if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
-					s.pub.Publish(err)
-					return &pb.GetPeersResponse{
-						Response: &pb.GetPeersResponse_ServiceErrorCode{
-							ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
-						},
-					}
-				}
-				return &pb.GetPeersResponse{
-					Response: &pb.GetPeersResponse_ServiceErrorCode{
-						ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
-					},
-				}
-			}
-			s.pub.Publish(fmt.Errorf("listing local peers (@GetPeers): %w", err))
-
-			// Mesh could get disabled (when self is removed)
-			//  - check it and report it to the user properly.
-			if !s.IsMeshnetOn() {
-				return &pb.GetPeersResponse{
-					Response: &pb.GetPeersResponse_MeshnetErrorCode{
-						MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
-					},
-				}
-			}
-
-			return &pb.GetPeersResponse{
-				Response: &pb.GetPeersResponse_ServiceErrorCode{
-					ServiceErrorCode: pb.ServiceErrorCode_API_FAILURE,
-				},
-			}
+	peers.Self = cfg.MeshDevice.ToProtobuf()
+	for _, peer := range meshnetMap.Peers {
+		protoPeer := peer.ToProtobuf()
+		status := pb.PeerStatus_DISCONNECTED
+		if peerMap[peer.PublicKey] == "connected" {
+			status = pb.PeerStatus_CONNECTED
 		}
+		protoPeer.Status = status
 
-		for _, peer := range resp {
-			peers.Local = append(peers.Local, peer.ToProtobuf())
-		}
-	} else {
-		token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-		resp, err := s.reg.List(token, cfg.MeshDevice.ID)
-		if err != nil {
-			if errors.Is(err, core.ErrUnauthorized) {
-				if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
-					s.pub.Publish(err)
-					return &pb.GetPeersResponse{
-						Response: &pb.GetPeersResponse_ServiceErrorCode{
-							ServiceErrorCode: pb.ServiceErrorCode_CONFIG_FAILURE,
-						},
-					}
-				}
-				return &pb.GetPeersResponse{
-					Response: &pb.GetPeersResponse_ServiceErrorCode{
-						ServiceErrorCode: pb.ServiceErrorCode_NOT_LOGGED_IN,
-					},
-				}
-			}
-			s.pub.Publish(fmt.Errorf("listing peers (@GetPeers): %w", err))
-
-			// Mesh could get disabled (when self is removed)
-			//  - check it and report it to the user properly.
-			if !s.IsMeshnetOn() {
-				return &pb.GetPeersResponse{
-					Response: &pb.GetPeersResponse_MeshnetErrorCode{
-						MeshnetErrorCode: pb.MeshnetErrorCode_NOT_ENABLED,
-					},
-				}
-			}
-
-			return &pb.GetPeersResponse{
-				Response: &pb.GetPeersResponse_ServiceErrorCode{
-					ServiceErrorCode: pb.ServiceErrorCode_API_FAILURE,
-				},
-			}
-		}
-
-		peers.Self = cfg.MeshDevice.ToProtobuf()
-		peerMap, err := s.netw.StatusMap()
-		if err != nil {
-			peerMap = map[string]string{}
-		}
-		for _, peer := range resp {
-			protoPeer := peer.ToProtobuf()
-			status := pb.PeerStatus_DISCONNECTED
-			if peerMap[peer.PublicKey] == "connected" {
-				status = pb.PeerStatus_CONNECTED
-			}
-			protoPeer.Status = status
-			if peer.IsLocal {
-				peers.Local = append(peers.Local, protoPeer)
-			} else {
-				peers.External = append(peers.External, protoPeer)
-			}
+		if peer.IsLocal {
+			peers.Local = append(peers.Local, protoPeer)
+		} else {
+			peers.External = append(peers.External, protoPeer)
 		}
 	}
 
@@ -1136,7 +1071,7 @@ func (s *Server) FetchMeshnetPeers() *pb.GetPeersResponse {
 		Response: &pb.GetPeersResponse_Peers{
 			Peers: &peers,
 		},
-	}
+	}, nil
 }
 
 func (s *Server) RemovePeer(

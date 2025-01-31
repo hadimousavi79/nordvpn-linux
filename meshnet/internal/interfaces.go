@@ -2,7 +2,6 @@ package internal
 
 import (
 	"github.com/NordSecurity/nordvpn-linux/core/mesh"
-	"github.com/NordSecurity/nordvpn-linux/meshnet/pb"
 )
 
 type MeshnetChecker interface {
@@ -10,7 +9,7 @@ type MeshnetChecker interface {
 }
 
 type MeshnetFetcher interface {
-	RefreshMeshnetMap() *pb.GetPeersResponse
+	RefreshMeshnetMap() (*mesh.MachineMap, error)
 }
 
 type MeshnetDataManager interface {

@@ -36,11 +36,6 @@ func (s *Server) StartJobs(
 	meshnetPublisher.Subscribe(func(enabled bool) error {
 		// TODO: check what happens if meshnet is started
 		if enabled {
-
-			if _, err := s.scheduler.NewJob(gocron.DurationJob(2*time.Hour), gocron.NewTask(jobs.JobRefreshMeshnetMap()), gocron.WithName("job refresh meshnet")); err != nil {
-				log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
-			}
-
 			job, err := s.scheduler.NewJob(
 				gocron.DurationJob(internal.MeshnetMapUpdateInterval),
 				gocron.NewTask(jobs.JobRefreshMeshnetMap(s, s, s.dataManager, s.subjectPeerUpdate)),
@@ -48,19 +43,19 @@ func (s *Server) StartJobs(
 				gocron.WithTags(internal.MeshnetMapJobTag),
 			)
 			if err != nil {
-				log.Println(internal.ErrorPrefix, "failed to schedule peers refresh job", err)
+				log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
 				return err
 			}
 
 			log.Println(internal.DebugPrefix, "peers refresh job scheduled")
 
 			if err := job.RunNow(); err != nil {
-				log.Println(internal.ErrorPrefix, "failed to run peers refresh job", err)
+				log.Println(internal.ErrorPrefix, "failed to run meshnet map refresh job", err)
 				return err
 			}
 		} else {
-			s.scheduler.RemoveByTags(internal.MeshnetPeersJobTag)
-			log.Println(internal.DebugPrefix, "stop peer refresh job")
+			s.scheduler.RemoveByTags(internal.MeshnetMapJobTag)
+			log.Println(internal.DebugPrefix, "stop meshnet map refresh job")
 		}
 		return nil
 	})

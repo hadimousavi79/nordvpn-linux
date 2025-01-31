@@ -36,7 +36,7 @@ func (c *CachedValue[T]) Get() (T, error) {
 	c.mu.Lock()
 	defer func() {
 		c.mu.Unlock()
-		if shouldUpdate {
+		if shouldUpdate && c.updaterFn != nil {
 			c.updaterFn(c)
 		}
 	}()
