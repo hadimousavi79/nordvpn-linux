@@ -304,8 +304,7 @@ func (s *Server) StartMeshnet() error {
 		return ErrDeviceNotRegistered
 	}
 
-	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	resp, err := s.reg.Map(token, cfg.MeshDevice.ID)
+	resp, err := s.RefreshMeshnetMap()
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {

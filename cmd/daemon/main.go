@@ -576,10 +576,8 @@ func main() {
 		}
 	}()
 	rpc.StartJobs(statePublisher, heartBeatSubject)
-	meshnetEvents.PeerUpdate.Subscribe(func(s []string) error {
-		meshService.RefreshMeshnetMap()
-	})
-	meshService.StartJobs(daemonEvents.Settings.Meshnet, meshnetEvents)
+
+	meshService.StartJobs(daemonEvents.Settings.Meshnet, meshnetEvents, cfg)
 	rpc.StartKillSwitch()
 	if internal.IsSystemd() {
 		go rpc.StartSystemShutdownMonitor()

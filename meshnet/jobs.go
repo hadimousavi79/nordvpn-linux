@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 
+	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/internal"
 	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
@@ -17,6 +18,7 @@ const ()
 func (s *Server) StartJobs(
 	meshnetStatusPublisher events.PublishSubcriber[bool],
 	meshnetEvents *Events,
+	cfg config.Config,
 ) {
 	if _, err := s.scheduler.NewJob(
 		gocron.DurationJob(1*time.Second),
@@ -35,13 +37,18 @@ func (s *Server) StartJobs(
 
 	// monitors the meshnet status and starts/stops the meshnet map refreshing job
 	meshnetStatusPublisher.Subscribe(func(enabled bool) error {
-		// TODO: check what happens if meshnet is started
-		return startMeshnetRefresher(enabled, s.scheduler, s, s)
+		log.Println("try to enable", enabled)
+		return jobs.ConfigureMeshnetMapRefresher(enabled, s.scheduler, s, s)
 	})
 
-	// monitor NC events
-	meshnetEvents.PeerUpdate.Subscribe(func(s []string) error {
-		
+	if cfg.Mesh {
+		jobs.ConfigureMeshnetMapRefresher(true, s.scheduler, s, s)
+	}
+
+	// monitor NC events and refresh meshnet map
+	meshnetEvents.PeerUpdate.Subscribe(func(peers []string) error {
+		_, err := s.RefreshMeshnetMap()
+		return err
 	})
 }
 
@@ -96,33 +103,4 @@ type rulesController interface {
 
 type processChecker interface {
 	isFileshareRunning() bool
-}
-
-func startMeshnetRefresher(enabled bool, scheduler gocron.Scheduler, meshnetChecker meshInternal.MeshnetChecker,
-	fetcher meshInternal.MeshnetFetcher,
-) error {
-	if enabled {
-		job, err := scheduler.NewJob(
-			gocron.DurationJob(internal.MeshnetMapUpdateInterval),
-			gocron.NewTask(jobs.JobRefreshMeshnetMap(meshnetChecker, fetcher)),
-			gocron.WithName("refresh meshnet map"),
-			gocron.WithTags(internal.MeshnetMapJobTag),
-		)
-		if err != nil {
-			log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
-			return err
-		}
-
-		log.Println(internal.DebugPrefix, "meshnet map refresh job scheduled")
-
-		if err := job.RunNow(); err != nil {
-			log.Println(internal.ErrorPrefix, "failed to run meshnet map refresh job", err)
-			return err
-		}
-	} else {
-		scheduler.RemoveByTags(internal.MeshnetMapJobTag)
-		log.Println(internal.DebugPrefix, "stop meshnet map refresh job")
-	}
-	return nil
-
 }

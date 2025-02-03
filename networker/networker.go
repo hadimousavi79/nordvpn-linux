@@ -1284,6 +1284,9 @@ func (netw *Combined) setMesh(
 }
 
 func (netw *Combined) refresh(cfg mesh.MachineMap) error {
+	if !netw.isMeshnetSet {
+		return fmt.Errorf("")
+	}
 	if err := netw.defaultMeshUnBlock(); err != nil {
 		log.Println(internal.WarningPrefix, err)
 	}
