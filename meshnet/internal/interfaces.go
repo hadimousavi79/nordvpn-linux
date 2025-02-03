@@ -9,7 +9,7 @@ type MeshnetChecker interface {
 }
 
 type MeshnetFetcher interface {
-	RefreshMeshnetMap() (*mesh.MachineMap, error)
+	RefreshMeshnetMap() error
 }
 
 type MeshnetDataManager interface {

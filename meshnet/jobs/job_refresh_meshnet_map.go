@@ -8,7 +8,10 @@ import (
 	"github.com/go-co-op/gocron/v2"
 )
 
-func ConfigureMeshnetMapRefresher(enabled bool, scheduler gocron.Scheduler, meshnetChecker meshInternal.MeshnetChecker,
+func ConfigureMeshnetMapRefresher(
+	enabled bool,
+	scheduler gocron.Scheduler,
+	meshnetChecker meshInternal.MeshnetChecker,
 	fetcher meshInternal.MeshnetFetcher,
 ) error {
 	if enabled {
@@ -46,7 +49,7 @@ func JobRefreshMeshnetMap(
 			return
 		}
 
-		_, err := fetcher.RefreshMeshnetMap()
+		err := fetcher.RefreshMeshnetMap()
 		if err != nil {
 			log.Println(internal.ErrorPrefix, "job update meshnet map failed", err)
 		}

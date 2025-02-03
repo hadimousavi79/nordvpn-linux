@@ -47,7 +47,7 @@ func (s *Server) StartJobs(
 
 	// monitor NC events and refresh meshnet map
 	meshnetEvents.PeerUpdate.Subscribe(func(peers []string) error {
-		_, err := s.RefreshMeshnetMap()
+		_, err := s.RefreshMeshnet(nil, nil)
 		return err
 	})
 }

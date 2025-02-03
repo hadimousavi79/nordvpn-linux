@@ -176,6 +176,8 @@ func (s *Server) EnableMeshnet(ctx context.Context, _ *pb.Empty) (*pb.MeshnetRes
 		}, nil
 	}
 
+	s.dataManager.SetMeshnetMap(resp, nil)
+
 	if err = s.netw.SetMesh(
 		*resp,
 		cfg.MeshDevice.Address,
@@ -304,7 +306,7 @@ func (s *Server) StartMeshnet() error {
 		return ErrDeviceNotRegistered
 	}
 
-	resp, err := s.RefreshMeshnetMap()
+	resp, err := s.FetchAndCacheMeshnetMap()
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -385,7 +387,17 @@ func (s *Server) DisableMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 
 // RefreshMeshnet updates peer configuration.
 func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse, error) {
-	_, err := s.RefreshMeshnetMap()
+	resp, err := s.FetchAndCacheMeshnetMap()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.netw.Refresh(*resp); err != nil {
+		s.pub.Publish(err)
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_API_FAILURE,
+		})
+	}
+
 	if err != nil {
 		var meshnetError *internal.GenericError[*pb.MeshnetResponse_MeshnetError]
 		if errors.As(err, &meshnetError) {
@@ -411,7 +423,12 @@ func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 	}, nil
 }
 
-func (s *Server) RefreshMeshnetMap() (*mesh.MachineMap, error) {
+func (s *Server) RefreshMeshnetMap() error {
+	_, err := s.RefreshMeshnet(nil, nil)
+	return err
+}
+
+func (s *Server) FetchAndCacheMeshnetMap() (*mesh.MachineMap, error) {
 	if !s.ac.IsLoggedIn() {
 		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
@@ -458,15 +475,7 @@ func (s *Server) RefreshMeshnetMap() (*mesh.MachineMap, error) {
 		})
 	}
 
-	// cache the response for later use
-	if s.dataManager.SetMeshnetMap(resp, nil) {
-		if err := s.netw.Refresh(*resp); err != nil {
-			s.pub.Publish(err)
-			return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-				ServiceError: pb.ServiceErrorCode_API_FAILURE,
-			})
-		}
-	}
+	s.dataManager.SetMeshnetMap(resp, nil)
 
 	return resp, nil
 }
@@ -687,7 +696,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	resp, err := s.reg.Map(tokenData.Token, cfg.MeshDevice.ID)
+	resp, err := s.FetchAndCacheMeshnetMap()
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
@@ -1357,7 +1366,7 @@ func (s *Server) ChangePeerNickname(
 		return s.apiToNicknameError(err), nil
 	}
 
-	mapResp, err := s.reg.Map(token, cfg.MeshDevice.ID)
+	mapResp, err := s.FetchAndCacheMeshnetMap()
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
@@ -1540,7 +1549,7 @@ func (s *Server) ChangeMachineNickname(
 		}, nil
 	}
 
-	resp, err := s.reg.Map(token, cfg.MeshDevice.ID)
+	resp, err := s.FetchAndCacheMeshnetMap()
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
