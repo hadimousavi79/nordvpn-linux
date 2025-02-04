@@ -4,10 +4,9 @@ import (
 	"errors"
 	"testing"
 
+	internal "github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
 	"github.com/NordSecurity/nordvpn-linux/test/category"
 	"github.com/stretchr/testify/assert"
-	"github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
-
 )
 
 func TestJobMonitorFileshare(t *testing.T) {
