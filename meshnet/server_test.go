@@ -187,7 +187,7 @@ func newMockedServer(
 	loadConfigErr error,
 	saveConfigErr error,
 	configureErr error,
-	IsMeshnetOn bool,
+	isMeshnetOn bool,
 	peers []mesh.MachinePeer,
 ) *Server {
 	t.Helper()
@@ -219,9 +219,10 @@ func newMockedServer(
 		},
 		testnorduser.NewMockNorduserClient(nil),
 		sharedctx.New(),
+		&mock.MockDataManager{},
 	)
 
-	if isMeshOn {
+	if isMeshnetOn {
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 	}
 
@@ -294,6 +295,7 @@ func TestServer_EnableMeshnet(t *testing.T) {
 				},
 				testnorduser.NewMockNorduserClient(test.startFileshareError),
 				sharedctx.New(),
+				&mock.MockDataManager{},
 			)
 			assert.NotEqual(t, nil, mserver)
 			assert.Equal(t, test.cm, mserver.cm)
@@ -380,6 +382,7 @@ func TestServer_DisableMeshnet(t *testing.T) {
 				},
 				testnorduser.NewMockNorduserClient(test.startFileshareError),
 				sharedctx.New(),
+				&mock.MockDataManager{},
 			)
 			assert.NotEqual(t, nil, mserver)
 			assert.Equal(t, test.cm, mserver.cm)
@@ -448,6 +451,7 @@ func TestServer_Invite(t *testing.T) {
 				},
 				testnorduser.NewMockNorduserClient(nil),
 				sharedctx.New(),
+				&mock.MockDataManager{},
 			)
 			server.EnableMeshnet(context.Background(), &pb.Empty{})
 			resp, err := server.Invite(context.Background(), &pb.InviteRequest{})
@@ -484,6 +488,7 @@ func TestServer_AcceptInvite(t *testing.T) {
 		},
 		testnorduser.NewMockNorduserClient(nil),
 		sharedctx.New(),
+		&mock.MockDataManager{},
 	)
 	server.EnableMeshnet(context.Background(), &pb.Empty{})
 	resp, err := server.AcceptInvite(context.Background(), &pb.InviteRequest{
@@ -520,9 +525,8 @@ func TestServer_GetPeersIPHandling(t *testing.T) {
 		},
 		testnorduser.NewMockNorduserClient(nil),
 		sharedctx.New(),
+		&mock.MockDataManager{},
 	)
-	server.EnableMeshnet(context.Background(), &pb.Empty{})
-
 	localPeerIP := "172.17.0.1"
 	externalPeerIP := "192.17.30.5"
 
@@ -566,16 +570,19 @@ func TestServer_GetPeersIPHandling(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		registryApi.Peers = test.peers
-
-		resp, _ := server.GetPeers(context.Background(), &pb.Empty{})
-
 		t.Run(test.name, func(t *testing.T) {
+			registryApi.Peers = test.peers
+			server.EnableMeshnet(context.Background(), &pb.Empty{})
+
+			resp, _ := server.GetPeers(context.Background(), &pb.Empty{})
+
 			assert.IsType(t, &pb.GetPeersResponse_Peers{}, resp.Response)
 			assert.Equal(t, 1, len(resp.GetPeers().Local))
 			assert.Equal(t, test.expectedLocalPeerIP, resp.GetPeers().Local[0].GetIp())
 			assert.Equal(t, 1, len(resp.GetPeers().External))
 			assert.Equal(t, test.expectedExternalPeerIP, resp.GetPeers().External[0].GetIp())
+
+			server.DisableMeshnet(context.Background(), &pb.Empty{})
 		})
 	}
 }
@@ -629,6 +636,7 @@ func TestServer_Connect(t *testing.T) {
 			},
 			testnorduser.NewMockNorduserClient(nil),
 			sharedctx.New(),
+			&mock.MockDataManager{},
 		)
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 		return server
@@ -770,6 +778,7 @@ func TestServer_AcceptIncoming(t *testing.T) {
 			},
 			testnorduser.NewMockNorduserClient(nil),
 			sharedctx.New(),
+			&mock.MockDataManager{},
 		)
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 		return server, &networker
@@ -901,6 +910,7 @@ func TestServer_DenyIncoming(t *testing.T) {
 			},
 			testnorduser.NewMockNorduserClient(nil),
 			sharedctx.New(),
+			&mock.MockDataManager{},
 		)
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 		return server, &networker
@@ -1014,6 +1024,7 @@ func TestServer_AllowFileshare(t *testing.T) {
 			},
 			testnorduser.NewMockNorduserClient(nil),
 			sharedctx.New(),
+			&mock.MockDataManager{},
 		)
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 		return server, &networker
@@ -1128,6 +1139,7 @@ func TestServer_DenyFileshare(t *testing.T) {
 			},
 			testnorduser.NewMockNorduserClient(nil),
 			sharedctx.New(),
+			&mock.MockDataManager{},
 		)
 		server.EnableMeshnet(context.Background(), &pb.Empty{})
 		return server, &networker
@@ -1773,6 +1785,7 @@ func TestServer_Peer_Nickname(t *testing.T) {
 				},
 				testnorduser.NewMockNorduserClient(nil),
 				sharedctx.New(),
+				&mock.MockDataManager{},
 			)
 
 			if test.isMeshOn {
@@ -2092,6 +2105,7 @@ func TestServer_Current_Machine_Nickname(t *testing.T) {
 				},
 				testnorduser.NewMockNorduserClient(nil),
 				sharedctx.New(),
+				&mock.MockDataManager{},
 			)
 
 			if test.isMeshOn {

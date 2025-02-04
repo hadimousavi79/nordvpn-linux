@@ -1047,6 +1047,9 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 	}
 	// get the peers list from the data manager
 	meshnetMap, err := s.dataManager.GetMeshnetMap()
+	if err != nil || meshnetMap == nil {
+		meshnetMap, err = s.FetchAndCacheMeshnetMap(cfg)
+	}
 
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "get peers failed with error", err)

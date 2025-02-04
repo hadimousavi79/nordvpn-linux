@@ -6,6 +6,8 @@ import (
 
 	"github.com/NordSecurity/nordvpn-linux/test/category"
 	"github.com/stretchr/testify/assert"
+	"github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
+
 )
 
 func TestJobMonitorFileshare(t *testing.T) {
@@ -14,7 +16,7 @@ func TestJobMonitorFileshare(t *testing.T) {
 	tests := []struct {
 		name                        string
 		isFileshareInitiallyAllowed bool
-		meshChecker                 meshChecker
+		meshChecker                 internal.MeshnetChecker
 		processChecker              processChecker
 		wasForbidCalled             bool
 		wasPermitCalled             bool
