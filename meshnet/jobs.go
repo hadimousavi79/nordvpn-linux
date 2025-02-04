@@ -13,8 +13,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/meshnet/jobs"
 )
 
-const ()
-
 func (s *Server) StartJobs(
 	meshnetStatusPublisher events.PublishSubcriber[bool],
 	meshnetEvents *Events,

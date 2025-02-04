@@ -9,6 +9,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 )
 
+// Starts or stops the meshnet map refresh job
 func ConfigureMeshnetMapRefresher(
 	enabled bool,
 	scheduler gocron.Scheduler,
@@ -47,7 +48,7 @@ func JobRefreshMeshnetMap(
 ) func() {
 	return func() {
 		if !meshnetChecker.IsMeshnetOn() {
-			log.Println(internal.DebugPrefix, "updating meshnet map called when meshnet is not enabled")
+			log.Println(internal.InfoPrefix, "updating meshnet map called when meshnet is not enabled")
 			return
 		}
 
