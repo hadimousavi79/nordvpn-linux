@@ -379,6 +379,8 @@ func (s *Server) DisableMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 	}
 	s.daemonEvents.Settings.Meshnet.Publish(false)
 
+	s.dataManager.SetMeshnetMap(nil, errors.New("empty"))
+
 	return &pb.MeshnetResponse{
 		Response: &pb.MeshnetResponse_Empty{},
 	}, nil
