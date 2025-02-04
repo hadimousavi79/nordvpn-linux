@@ -65,6 +65,10 @@ func TestCachedValue(t *testing.T) {
 			}
 			assert.ErrorIs(t, err, test.err)
 
+			if !updateCalled {
+				assert.False(t, item.Set(test.initialValue, nil))
+			}
+
 			assert.Equal(t, updateCalled, test.shouldUpdate)
 			if test.shouldUpdate {
 				value, err := item.Get()

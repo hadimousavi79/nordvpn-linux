@@ -2,6 +2,7 @@ package internal
 
 import "fmt"
 
+// Wrap any object into an error
 type GenericError[T any] struct {
 	Value T
 }

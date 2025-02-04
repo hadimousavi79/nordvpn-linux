@@ -42,7 +42,6 @@ func NewDataManager(insightsFilePath,
 	countryFilePath,
 	versionFilePath string,
 	dataUpdateEvents *events.DataUpdateEvents,
-	meshnetMap *models.CachedValue[*mesh.MachineMap],
 ) *DataManager {
 	return &DataManager{
 		countryData:      CountryData{filePath: countryFilePath},
@@ -50,7 +49,13 @@ func NewDataManager(insightsFilePath,
 		serversData:      ServersData{filePath: serversFilePath},
 		versionData:      VersionData{filePath: versionFilePath},
 		dataUpdateEvents: dataUpdateEvents,
-		meshnetMap:       meshnetMap,
+		meshnetMap: models.NewCachedValue[*mesh.MachineMap](
+			nil,
+			errors.New("empty"),
+			time.Time{},
+			internal.MeshnetMapUpdateInterval,
+			nil,
+		),
 	}
 }
 
@@ -391,6 +396,6 @@ func (dm *DataManager) GetMeshnetMap() (*mesh.MachineMap, error) {
 	return dm.meshnetMap.Get()
 }
 
-func (dm *DataManager) SetMeshnetMap(peers *mesh.MachineMap, err error) bool {
-	return dm.meshnetMap.Set(peers, err)
+func (dm *DataManager) SetMeshnetMap(peers *mesh.MachineMap, err error) {
+	dm.meshnetMap.Set(peers, err)
 }

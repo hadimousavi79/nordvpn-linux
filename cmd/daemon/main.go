@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"errors"
@@ -22,7 +23,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/auth"
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/core"
-	x "github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon"
 	"github.com/NordSecurity/nordvpn-linux/daemon/device"
 	"github.com/NordSecurity/nordvpn-linux/daemon/dns"
@@ -31,7 +31,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/allowlist"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/iptables"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/notables"
-	"github.com/NordSecurity/nordvpn-linux/daemon/models"
 	"github.com/NordSecurity/nordvpn-linux/daemon/netstate"
 	"github.com/NordSecurity/nordvpn-linux/daemon/pb"
 	"github.com/NordSecurity/nordvpn-linux/daemon/response"
@@ -48,7 +47,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/distro"
 	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/events/logger"
-	"github.com/NordSecurity/nordvpn-linux/events/meshunsetter"
 	"github.com/NordSecurity/nordvpn-linux/events/subs"
 	grpcmiddleware "github.com/NordSecurity/nordvpn-linux/grpc_middleware"
 	"github.com/NordSecurity/nordvpn-linux/internal"
@@ -327,7 +325,7 @@ func main() {
 		ifaceNames = append(ifaceNames, d.Name)
 	}
 
-	mesh, err := meshnetImplementation(vpnFactory)
+	meshnetInstance, err := meshnetImplementation(vpnFactory)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -355,7 +353,7 @@ func main() {
 
 	netw := networker.NewCombined(
 		vpn,
-		mesh,
+		meshnetInstance,
 		gwret,
 		infoSubject,
 		allowlistRouter,
@@ -412,14 +410,6 @@ func main() {
 		meshAPIex,
 	)
 
-	meshUnsetter := meshunsetter.NewMeshnet(
-		fsystem,
-		netw,
-		errSubject,
-		norduserClient,
-	)
-	meshnetEvents.SelfRemoved.Subscribe(meshUnsetter.NotifyDisabled)
-
 	accountUpdateEvents := daemonevents.NewAccountUpdateEvents()
 	accountUpdateEvents.Subscribe(statePublisher)
 	authChecker := auth.NewRenewingChecker(
@@ -446,7 +436,6 @@ func main() {
 		daemon.CountryDataFilePath,
 		daemon.VersionFilePath,
 		dataUpdateEvents,
-		models.NewCachedValue[*x.MachineMap](nil, errors.New("empty"), time.Time{}, internal.MeshnetMapUpdateInterval, nil),
 	)
 
 	sharedContext := sharedctx.New()
@@ -491,6 +480,16 @@ func main() {
 		sharedContext,
 		dm,
 	)
+
+	meshnetEvents.PeerUpdate.Subscribe(func(ids []string) error {
+		_, err := meshService.RefreshMeshnetMap(ids)
+		return err
+	})
+
+	meshnetEvents.SelfRemoved.Subscribe(func(any) error {
+		meshService.DisableMeshnet(context.Background(), nil)
+		return nil
+	})
 
 	opts := []grpc.ServerOption{
 		grpc.Creds(internal.NewUnixSocketCredentials(internal.NewDaemonAuthenticator())),

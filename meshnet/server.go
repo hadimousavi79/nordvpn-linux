@@ -23,9 +23,8 @@ import (
 	daemonevents "github.com/NordSecurity/nordvpn-linux/daemon/events"
 	"github.com/NordSecurity/nordvpn-linux/daemon/vpn"
 	"github.com/NordSecurity/nordvpn-linux/events"
-
 	"github.com/NordSecurity/nordvpn-linux/internal"
-	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
+	interfaces "github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
 	"github.com/NordSecurity/nordvpn-linux/meshnet/pb"
 	"github.com/NordSecurity/nordvpn-linux/norduser/service"
 	"github.com/NordSecurity/nordvpn-linux/sharedctx"
@@ -56,7 +55,7 @@ type Server struct {
 	norduser          service.NorduserFileshareClient
 	scheduler         gocron.Scheduler
 	connectContext    *sharedctx.Context
-	dataManager       meshInternal.MeshnetDataManager
+	dataManager       interfaces.MeshnetDataManager
 	pb.UnimplementedMeshnetServer
 }
 
@@ -74,7 +73,7 @@ func NewServer(
 	deemonEvents *daemonevents.Events,
 	norduser service.NorduserFileshareClient,
 	connectContext *sharedctx.Context,
-	dataManager meshInternal.MeshnetDataManager,
+	dataManager interfaces.MeshnetDataManager,
 ) *Server {
 	scheduler, _ := gocron.NewScheduler(gocron.WithLocation(time.UTC))
 	return &Server{
@@ -306,7 +305,7 @@ func (s *Server) StartMeshnet() error {
 		return ErrDeviceNotRegistered
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap()
+	resp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -387,17 +386,7 @@ func (s *Server) DisableMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 
 // RefreshMeshnet updates peer configuration.
 func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse, error) {
-	resp, err := s.FetchAndCacheMeshnetMap()
-	if err != nil {
-		return nil, err
-	}
-	if err := s.netw.Refresh(*resp); err != nil {
-		s.pub.Publish(err)
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-			ServiceError: pb.ServiceErrorCode_API_FAILURE,
-		})
-	}
-
+	_, err := s.RefreshMeshnetMap(nil)
 	if err != nil {
 		var meshnetError *internal.GenericError[*pb.MeshnetResponse_MeshnetError]
 		if errors.As(err, &meshnetError) {
@@ -423,23 +412,47 @@ func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 	}, nil
 }
 
-func (s *Server) RefreshMeshnetMap() error {
-	_, err := s.RefreshMeshnet(nil, nil)
-	return err
-}
-
-func (s *Server) FetchAndCacheMeshnetMap() (*mesh.MachineMap, error) {
-	if !s.ac.IsLoggedIn() {
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
-		})
-	}
-
+func (s *Server) RefreshMeshnetMap(changePeerIds []string) (*mesh.MachineMap, error) {
 	var cfg config.Config
 	if err := s.cm.Load(&cfg); err != nil {
 		s.pub.Publish(err)
 		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
+		})
+	}
+
+	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(changePeerIds) != 0 {
+		if internal.Contains(changePeerIds, cfg.MeshDevice.ID.String()) && !cfg.MeshDevice.IsEqual(resp.Machine) {
+			// update info about current device when meshnet info are different
+			log.Println(internal.InfoPrefix, "update current machine information")
+			err := s.cm.SaveWith(func(c config.Config) config.Config {
+				c.MeshDevice = &resp.Machine
+				return c
+			})
+			if err != nil {
+				log.Println(internal.ErrorPrefix, "failed to save new machine information", err)
+			}
+		}
+	}
+
+	if err := s.netw.Refresh(*resp); err != nil {
+		s.pub.Publish(err)
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_API_FAILURE,
+		})
+	}
+	return resp, nil
+}
+
+func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (*mesh.MachineMap, error) {
+	if !s.ac.IsLoggedIn() {
+		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
 		})
 	}
 
@@ -696,7 +709,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap()
+	resp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
@@ -1366,7 +1379,7 @@ func (s *Server) ChangePeerNickname(
 		return s.apiToNicknameError(err), nil
 	}
 
-	mapResp, err := s.FetchAndCacheMeshnetMap()
+	mapResp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
@@ -1549,7 +1562,7 @@ func (s *Server) ChangeMachineNickname(
 		}, nil
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap()
+	resp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{

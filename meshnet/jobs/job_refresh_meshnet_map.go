@@ -2,21 +2,23 @@ package jobs
 
 import (
 	"log"
+	"time"
 
 	"github.com/NordSecurity/nordvpn-linux/internal"
-	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
+	meshnet "github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
 	"github.com/go-co-op/gocron/v2"
 )
 
 func ConfigureMeshnetMapRefresher(
 	enabled bool,
 	scheduler gocron.Scheduler,
-	meshnetChecker meshInternal.MeshnetChecker,
-	fetcher meshInternal.MeshnetFetcher,
+	meshnetChecker meshnet.MeshnetChecker,
+	fetcher meshnet.MeshnetFetcher,
+	interval time.Duration,
 ) error {
 	if enabled {
 		job, err := scheduler.NewJob(
-			gocron.DurationJob(internal.MeshnetMapUpdateInterval),
+			gocron.DurationJob(interval),
 			gocron.NewTask(JobRefreshMeshnetMap(meshnetChecker, fetcher)),
 			gocron.WithName("refresh meshnet map"),
 			gocron.WithTags(internal.MeshnetMapJobTag),
@@ -40,8 +42,8 @@ func ConfigureMeshnetMapRefresher(
 }
 
 func JobRefreshMeshnetMap(
-	meshnetChecker meshInternal.MeshnetChecker,
-	fetcher meshInternal.MeshnetFetcher,
+	meshnetChecker meshnet.MeshnetChecker,
+	fetcher meshnet.MeshnetFetcher,
 ) func() {
 	return func() {
 		if !meshnetChecker.IsMeshnetOn() {
@@ -49,7 +51,7 @@ func JobRefreshMeshnetMap(
 			return
 		}
 
-		err := fetcher.RefreshMeshnetMap()
+		_, err := fetcher.RefreshMeshnetMap(nil)
 		if err != nil {
 			log.Println(internal.ErrorPrefix, "job update meshnet map failed", err)
 		}

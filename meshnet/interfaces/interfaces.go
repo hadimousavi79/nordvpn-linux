@@ -9,10 +9,10 @@ type MeshnetChecker interface {
 }
 
 type MeshnetFetcher interface {
-	RefreshMeshnetMap() error
+	RefreshMeshnetMap(changePeerIds []string) (*mesh.MachineMap, error)
 }
 
 type MeshnetDataManager interface {
 	GetMeshnetMap() (*mesh.MachineMap, error)
-	SetMeshnetMap(peers *mesh.MachineMap, err error) bool
+	SetMeshnetMap(peers *mesh.MachineMap, err error)
 }

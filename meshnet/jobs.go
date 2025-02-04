@@ -9,7 +9,7 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/events"
 	"github.com/NordSecurity/nordvpn-linux/internal"
-	meshInternal "github.com/NordSecurity/nordvpn-linux/meshnet/internal"
+	interfaces "github.com/NordSecurity/nordvpn-linux/meshnet/interfaces"
 	"github.com/NordSecurity/nordvpn-linux/meshnet/jobs"
 )
 
@@ -37,19 +37,12 @@ func (s *Server) StartJobs(
 
 	// monitors the meshnet status and starts/stops the meshnet map refreshing job
 	meshnetStatusPublisher.Subscribe(func(enabled bool) error {
-		log.Println("try to enable", enabled)
-		return jobs.ConfigureMeshnetMapRefresher(enabled, s.scheduler, s, s)
+		return jobs.ConfigureMeshnetMapRefresher(enabled, s.scheduler, s, s, internal.MeshnetMapUpdateInterval)
 	})
 
 	if cfg.Mesh {
-		jobs.ConfigureMeshnetMapRefresher(true, s.scheduler, s, s)
+		jobs.ConfigureMeshnetMapRefresher(true, s.scheduler, s, s, internal.MeshnetMapUpdateInterval)
 	}
-
-	// monitor NC events and refresh meshnet map
-	meshnetEvents.PeerUpdate.Subscribe(func(peers []string) error {
-		_, err := s.RefreshMeshnet(nil, nil)
-		return err
-	})
 }
 
 func JobMonitorFileshareProcess(s *Server) func() error {
@@ -91,7 +84,7 @@ func (defaultProcessChecker) isFileshareRunning() bool {
 
 type monitorFileshareProcessJob struct {
 	isFileshareAllowed bool
-	meshChecker        meshInternal.MeshnetChecker
+	meshChecker        interfaces.MeshnetChecker
 	rulesController    rulesController
 	processChecker     processChecker
 }

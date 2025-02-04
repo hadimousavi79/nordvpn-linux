@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-type CachedValue[T comparable] struct {
+// Thread safe data caching
+type CachedValue[T any] struct {
 	value       T
 	latestError error
 	cachedDate  time.Time
@@ -14,7 +15,7 @@ type CachedValue[T comparable] struct {
 	mu          *sync.Mutex
 }
 
-func NewCachedValue[T comparable](
+func NewCachedValue[T any](
 	value T,
 	err error,
 	cachedDate time.Time,
@@ -44,15 +45,11 @@ func (c *CachedValue[T]) Get() (T, error) {
 	return c.value, c.latestError
 }
 
-func (c *CachedValue[T]) Set(value T, err error) bool {
-
+func (c *CachedValue[T]) Set(value T, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.cachedDate = time.Now()
-	updated := c.value == value
 	c.value = value
 	c.latestError = err
-
-	return updated
 }
