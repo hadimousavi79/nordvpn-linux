@@ -189,7 +189,7 @@ func newMockedServer(
 	configureErr error,
 	isMeshnetOn bool,
 	peers []mesh.MachinePeer,
-) *Server {
+) (*Server, *mock.RegistryMock) {
 	t.Helper()
 
 	registryApi := mock.RegistryMock{}
@@ -229,7 +229,7 @@ func newMockedServer(
 	configManager.SaveErr = saveConfigErr
 	configManager.LoadErr = loadConfigErr
 
-	return server
+	return server, &registryApi
 }
 
 func TestServer_EnableMeshnet(t *testing.T) {
@@ -1321,13 +1321,15 @@ func TestServer_EnableAutomaticFileshare(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := newMockedServer(t,
+			server, api := newMockedServer(t,
 				test.listErr,
 				test.loadConfigErr,
 				test.saveConfigErr,
 				test.configureErr,
 				test.isMeshOn,
 				peers)
+
+			api.MapErr = test.listErr
 			resp, err := server.EnableAutomaticFileshare(context.Background(), &pb.UpdatePeerRequest{Identifier: test.peerUuid})
 
 			assert.Nil(t, err)
@@ -1460,13 +1462,16 @@ func TestServer_DisableAutomaticFileshare(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := newMockedServer(t,
+			server, api := newMockedServer(t,
 				test.listErr,
 				test.loadConfigErr,
 				test.saveConfigErr,
 				test.configureErr,
 				test.isMeshOn,
-				peers)
+				peers,
+			)
+			api.MapErr = test.listErr
+
 			resp, err := server.DisableAutomaticFileshare(context.Background(), &pb.UpdatePeerRequest{Identifier: test.peerUuid})
 
 			assert.Nil(t, err)
@@ -1791,6 +1796,7 @@ func TestServer_Peer_Nickname(t *testing.T) {
 			if test.isMeshOn {
 				server.EnableMeshnet(context.Background(), &pb.Empty{})
 			}
+			registryApi.MapErr = test.listErr
 
 			checker.registrationErr = test.registrationErr
 
@@ -2136,61 +2142,5 @@ func TestServer_Current_Machine_Nickname(t *testing.T) {
 				assert.True(t, registryApi.CurrentMachine.SupportsRouting)
 			}
 		})
-	}
-}
-
-func TestServer_listPeers(t *testing.T) {
-	category.Set(t, category.Unit)
-
-	tests := []struct {
-		name          string
-		machine       *mesh.Machine
-		loadConfigErr error
-		listErr       error
-		shouldBeErr   bool
-	}{
-		{
-			name:        "success",
-			machine:     &mesh.Machine{},
-			shouldBeErr: false,
-		},
-		{
-			name:        "meshnet is not configured",
-			machine:     nil,
-			shouldBeErr: true,
-		},
-		{
-			name:          "load config error",
-			machine:       &mesh.Machine{},
-			loadConfigErr: fmt.Errorf("failed to load config"),
-			shouldBeErr:   true,
-		},
-		{
-			name:        "list error",
-			machine:     &mesh.Machine{},
-			listErr:     fmt.Errorf("failed to load config"),
-			shouldBeErr: true,
-		},
-	}
-
-	for _, test := range tests {
-		configManager := mock.NewMockConfigManager()
-		configManager.LoadErr = test.loadConfigErr
-		configManager.Cfg.MeshDevice = test.machine
-
-		registryApi := mock.RegistryMock{}
-		registryApi.ListErr = test.listErr
-
-		s := Server{
-			cm:  configManager,
-			reg: &registryApi,
-		}
-
-		_, err := s.listPeers()
-		if test.shouldBeErr {
-			assert.NotNil(t, err)
-		} else {
-			assert.Nil(t, err)
-		}
 	}
 }

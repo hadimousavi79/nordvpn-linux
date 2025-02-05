@@ -23,6 +23,7 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/auth"
 	"github.com/NordSecurity/nordvpn-linux/config"
 	"github.com/NordSecurity/nordvpn-linux/core"
+	"github.com/NordSecurity/nordvpn-linux/core/mesh"
 	"github.com/NordSecurity/nordvpn-linux/daemon"
 	"github.com/NordSecurity/nordvpn-linux/daemon/device"
 	"github.com/NordSecurity/nordvpn-linux/daemon/dns"
@@ -31,6 +32,7 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/allowlist"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/iptables"
 	"github.com/NordSecurity/nordvpn-linux/daemon/firewall/notables"
+	"github.com/NordSecurity/nordvpn-linux/daemon/models"
 	"github.com/NordSecurity/nordvpn-linux/daemon/netstate"
 	"github.com/NordSecurity/nordvpn-linux/daemon/pb"
 	"github.com/NordSecurity/nordvpn-linux/daemon/response"
@@ -481,12 +483,19 @@ func main() {
 		dm,
 	)
 
+	dm.ChangeUpdaterFnForMeshnetMap(func(cv *models.CachedValue[mesh.MachineMap]) {
+		// if the cached meshnet map is too old refetch meshnet map
+		meshService.RefreshMeshnetMap(nil)
+	})
+
 	meshnetEvents.PeerUpdate.Subscribe(func(ids []string) error {
+		// for NC events refresh map
 		_, err := meshService.RefreshMeshnetMap(ids)
 		return err
 	})
 
 	meshnetEvents.SelfRemoved.Subscribe(func(any) error {
+		// at NC event that current device was removed from meshnet, disable meshnet
 		meshService.DisableMeshnet(context.Background(), nil)
 		return nil
 	})

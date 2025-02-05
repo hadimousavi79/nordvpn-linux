@@ -175,7 +175,7 @@ func (s *Server) EnableMeshnet(ctx context.Context, _ *pb.Empty) (*pb.MeshnetRes
 		}, nil
 	}
 
-	s.dataManager.SetMeshnetMap(resp, nil)
+	s.dataManager.SetMeshnetMap(*resp, nil)
 
 	if err = s.netw.SetMesh(
 		*resp,
@@ -316,7 +316,7 @@ func (s *Server) StartMeshnet() error {
 	}
 
 	if err := s.netw.SetMesh(
-		*resp,
+		resp,
 		cfg.MeshDevice.Address,
 		cfg.MeshPrivateKey,
 	); err != nil {
@@ -379,7 +379,7 @@ func (s *Server) DisableMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 	}
 	s.daemonEvents.Settings.Meshnet.Publish(false)
 
-	s.dataManager.SetMeshnetMap(nil, errors.New("empty"))
+	s.dataManager.SetMeshnetMap(mesh.MachineMap{}, errors.New("empty"))
 
 	return &pb.MeshnetResponse{
 		Response: &pb.MeshnetResponse_Empty{},
@@ -414,18 +414,32 @@ func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 	}, nil
 }
 
-func (s *Server) RefreshMeshnetMap(changePeerIds []string) (*mesh.MachineMap, error) {
+func (s *Server) RefreshMeshnetMap(changePeerIds []string) (mesh.MachineMap, error) {
 	var cfg config.Config
 	if err := s.cm.Load(&cfg); err != nil {
 		s.pub.Publish(err)
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
 		})
 	}
 
 	resp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, core.ErrUnauthorized) {
+			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
+				s.pub.Publish(err)
+				return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+					ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
+				})
+			}
+			return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+				ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
+			})
+		}
+		s.pub.Publish(err)
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+			ServiceError: pb.ServiceErrorCode_API_FAILURE,
+		})
 	}
 
 	if len(changePeerIds) != 0 {
@@ -442,30 +456,30 @@ func (s *Server) RefreshMeshnetMap(changePeerIds []string) (*mesh.MachineMap, er
 		}
 	}
 
-	if err := s.netw.Refresh(*resp); err != nil {
+	if err := s.netw.Refresh(resp); err != nil {
 		s.pub.Publish(err)
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_API_FAILURE,
 		})
 	}
 	return resp, nil
 }
 
-func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (*mesh.MachineMap, error) {
+func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (mesh.MachineMap, error) {
 	if !s.ac.IsLoggedIn() {
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
 		})
 	}
 
 	if !cfg.Mesh {
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
 			MeshnetError: pb.MeshnetErrorCode_NOT_ENABLED,
 		})
 	}
 
 	if !s.mc.IsRegistrationInfoCorrect() {
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
+		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_MeshnetError{
 			MeshnetError: pb.MeshnetErrorCode_NOT_REGISTERED,
 		})
 	}
@@ -473,26 +487,22 @@ func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (*mesh.MachineMap, e
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
 	resp, err := s.reg.Map(token, cfg.MeshDevice.ID)
 	if err != nil {
-		if errors.Is(err, core.ErrUnauthorized) {
-			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
-				s.pub.Publish(err)
-				return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-					ServiceError: pb.ServiceErrorCode_CONFIG_FAILURE,
-				})
-			}
-			return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-				ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
-			})
-		}
-		s.pub.Publish(err)
-		return nil, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
-			ServiceError: pb.ServiceErrorCode_API_FAILURE,
-		})
+		return mesh.MachineMap{}, err
 	}
 
-	s.dataManager.SetMeshnetMap(resp, nil)
+	s.dataManager.SetMeshnetMap(*resp, nil)
 
-	return resp, nil
+	return *resp, nil
+}
+
+// Get meshnet map from cache or fetch from the API if cache is empty
+func (s *Server) getOrFetchMeshnetMap(cfg config.Config) (mesh.MachineMap, error) {
+	meshnetMap, err := s.dataManager.GetMeshnetMap()
+	if err != nil || meshnetMap.PublicKey == "" {
+		meshnetMap, err = s.FetchAndCacheMeshnetMap(cfg)
+	}
+
+	return meshnetMap, err
 }
 
 // Invite another peer
@@ -711,7 +721,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	resp, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
@@ -721,7 +731,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	if err := s.netw.Refresh(*resp); err != nil {
+	if err := s.netw.Refresh(resp); err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
 			Response: &pb.RespondToInviteResponse_MeshnetErrorCode{
@@ -1045,12 +1055,7 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 			},
 		}, nil
 	}
-	// get the peers list from the data manager
-	meshnetMap, err := s.dataManager.GetMeshnetMap()
-	if err != nil || meshnetMap == nil {
-		meshnetMap, err = s.FetchAndCacheMeshnetMap(cfg)
-	}
-
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		log.Println(internal.ErrorPrefix, "get peers failed with error", err)
 
@@ -1196,7 +1201,7 @@ func (s *Server) RemovePeer(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	resp, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -1232,7 +1237,7 @@ func (s *Server) RemovePeer(
 		}, nil
 	}
 
-	index := slices.IndexFunc(resp, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -1243,7 +1248,7 @@ func (s *Server) RemovePeer(
 		}, nil
 	}
 
-	peer := resp[index]
+	peer := meshnetMap.Peers[index]
 	if peer.IsLocal {
 		if err := s.reg.Unregister(token, peer.ID); err != nil {
 			s.pub.Publish(fmt.Errorf("removing peer: %w", err))
@@ -1263,6 +1268,7 @@ func (s *Server) RemovePeer(
 			}, nil
 		}
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.RemovePeerResponse{
 		Response: &pb.RemovePeerResponse_Empty{},
@@ -1312,7 +1318,7 @@ func (s *Server) ChangePeerNickname(
 	}
 
 	// TODO: sometimes IsRegistrationInfoCorrect() re-registers the device => cfg.MeshDevice.ID can be different.
-	resp, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -1337,7 +1343,7 @@ func (s *Server) ChangePeerNickname(
 		}, nil
 	}
 
-	peer := s.getPeerWithIdentifier(req.GetIdentifier(), resp)
+	peer := s.getPeerWithIdentifier(req.GetIdentifier(), meshnetMap.Peers)
 
 	if peer == nil {
 		return &pb.ChangeNicknameResponse{
@@ -1394,7 +1400,7 @@ func (s *Server) ChangePeerNickname(
 		}, nil
 	}
 
-	if err := s.netw.Refresh(*mapResp); err != nil {
+	if err := s.netw.Refresh(mapResp); err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
 			Response: &pb.ChangeNicknameResponse_ServiceErrorCode{
@@ -1577,7 +1583,7 @@ func (s *Server) ChangeMachineNickname(
 		}, nil
 	}
 
-	if err := s.netw.Refresh(*resp); err != nil {
+	if err := s.netw.Refresh(resp); err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
 			Response: &pb.ChangeNicknameResponse_ServiceErrorCode{
@@ -1640,7 +1646,7 @@ func (s *Server) AllowIncoming(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	resp, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -1676,7 +1682,7 @@ func (s *Server) AllowIncoming(
 		}, nil
 	}
 
-	index := slices.IndexFunc(resp, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -1687,8 +1693,7 @@ func (s *Server) AllowIncoming(
 		}, nil
 	}
 
-	peer := resp[index]
-	if peer.DoIAllowInbound {
+	if meshnetMap.Peers[index].DoIAllowInbound {
 		return &pb.AllowIncomingResponse{
 			Response: &pb.AllowIncomingResponse_AllowIncomingErrorCode{
 				AllowIncomingErrorCode: pb.AllowIncomingErrorCode_INCOMING_ALREADY_ALLOWED,
@@ -1696,6 +1701,7 @@ func (s *Server) AllowIncoming(
 		}, nil
 	}
 
+	peer := meshnetMap.Peers[index]
 	peer.DoIAllowInbound = true
 	if err := s.updatePeerPermissions(token, cfg.MeshDevice.ID, peer); err != nil {
 		s.pub.Publish(err)
@@ -1705,6 +1711,7 @@ func (s *Server) AllowIncoming(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	if peer.Address.IsValid() {
 		if err := s.netw.AllowIncoming(UniqueAddress{
@@ -1764,7 +1771,7 @@ func (s *Server) DenyIncoming(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	resp, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -1789,7 +1796,7 @@ func (s *Server) DenyIncoming(
 		}, nil
 	}
 
-	index := slices.IndexFunc(resp, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -1800,15 +1807,14 @@ func (s *Server) DenyIncoming(
 		}, nil
 	}
 
-	peer := resp[index]
-	if !peer.DoIAllowInbound {
+	if !meshnetMap.Peers[index].DoIAllowInbound {
 		return &pb.DenyIncomingResponse{
 			Response: &pb.DenyIncomingResponse_DenyIncomingErrorCode{
 				DenyIncomingErrorCode: pb.DenyIncomingErrorCode_INCOMING_ALREADY_DENIED,
 			},
 		}, nil
 	}
-
+	peer := meshnetMap.Peers[index]
 	peer.DoIAllowInbound = false
 	if err := s.updatePeerPermissions(
 		token,
@@ -1835,6 +1841,7 @@ func (s *Server) DenyIncoming(
 			}, nil
 		}
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.DenyIncomingResponse{
 		Response: &pb.DenyIncomingResponse_Empty{},
@@ -1873,7 +1880,7 @@ func (s *Server) AllowRouting(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -1909,7 +1916,7 @@ func (s *Server) AllowRouting(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -1920,20 +1927,20 @@ func (s *Server) AllowRouting(
 		}, nil
 	}
 
-	if peers[index].DoIAllowRouting {
+	if meshnetMap.Peers[index].DoIAllowRouting {
 		return &pb.AllowRoutingResponse{
 			Response: &pb.AllowRoutingResponse_AllowRoutingErrorCode{
 				AllowRoutingErrorCode: pb.AllowRoutingErrorCode_ROUTING_ALREADY_ALLOWED,
 			},
 		}, nil
 	}
-
-	peers[index].DoIAllowRouting = true
+	peer := meshnetMap.Peers[index]
+	peer.DoIAllowRouting = true
 
 	if err := s.updatePeerPermissions(
 		token,
 		cfg.MeshDevice.ID,
-		peers[index],
+		peer,
 	); err != nil {
 		s.pub.Publish(err)
 		return &pb.AllowRoutingResponse{
@@ -1943,7 +1950,7 @@ func (s *Server) AllowRouting(
 		}, nil
 	}
 
-	if err := s.netw.ResetRouting(peers[index], peers); err != nil {
+	if err := s.netw.ResetRouting(peer, meshnetMap.Peers); err != nil {
 		s.pub.Publish(err)
 		return &pb.AllowRoutingResponse{
 			Response: &pb.AllowRoutingResponse_MeshnetErrorCode{
@@ -1951,6 +1958,7 @@ func (s *Server) AllowRouting(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.AllowRoutingResponse{
 		Response: &pb.AllowRoutingResponse_Empty{},
@@ -1997,7 +2005,7 @@ func (s *Server) DenyRouting(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2033,7 +2041,7 @@ func (s *Server) DenyRouting(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2044,7 +2052,7 @@ func (s *Server) DenyRouting(
 		}, nil
 	}
 
-	if !peers[index].DoIAllowRouting {
+	if !meshnetMap.Peers[index].DoIAllowRouting {
 		return &pb.DenyRoutingResponse{
 			Response: &pb.DenyRoutingResponse_DenyRoutingErrorCode{
 				DenyRoutingErrorCode: pb.DenyRoutingErrorCode_ROUTING_ALREADY_DENIED,
@@ -2052,12 +2060,13 @@ func (s *Server) DenyRouting(
 		}, nil
 	}
 
-	peers[index].DoIAllowRouting = false
+	peer := meshnetMap.Peers[index]
+	peer.DoIAllowRouting = false
 
 	if err := s.updatePeerPermissions(
 		token,
 		cfg.MeshDevice.ID,
-		peers[index],
+		peer,
 	); err != nil {
 		s.pub.Publish(err)
 		return &pb.DenyRoutingResponse{
@@ -2067,7 +2076,7 @@ func (s *Server) DenyRouting(
 		}, nil
 	}
 
-	if err := s.netw.ResetRouting(peers[index], peers); err != nil {
+	if err := s.netw.ResetRouting(peer, meshnetMap.Peers); err != nil {
 		s.pub.Publish(err)
 		return &pb.DenyRoutingResponse{
 			Response: &pb.DenyRoutingResponse_MeshnetErrorCode{
@@ -2075,6 +2084,7 @@ func (s *Server) DenyRouting(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.DenyRoutingResponse{
 		Response: &pb.DenyRoutingResponse_Empty{},
@@ -2121,7 +2131,7 @@ func (s *Server) AllowLocalNetwork(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2157,7 +2167,7 @@ func (s *Server) AllowLocalNetwork(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2168,7 +2178,7 @@ func (s *Server) AllowLocalNetwork(
 		}, nil
 	}
 
-	if peers[index].DoIAllowLocalNetwork {
+	if meshnetMap.Peers[index].DoIAllowLocalNetwork {
 		return &pb.AllowLocalNetworkResponse{
 			Response: &pb.AllowLocalNetworkResponse_AllowLocalNetworkErrorCode{
 				AllowLocalNetworkErrorCode: pb.AllowLocalNetworkErrorCode_LOCAL_NETWORK_ALREADY_ALLOWED,
@@ -2176,12 +2186,13 @@ func (s *Server) AllowLocalNetwork(
 		}, nil
 	}
 
-	peers[index].DoIAllowLocalNetwork = true
+	peer := meshnetMap.Peers[index]
+	peer.DoIAllowLocalNetwork = true
 
 	if err := s.updatePeerPermissions(
 		token,
 		cfg.MeshDevice.ID,
-		peers[index],
+		peer,
 	); err != nil {
 		s.pub.Publish(err)
 		return &pb.AllowLocalNetworkResponse{
@@ -2191,7 +2202,7 @@ func (s *Server) AllowLocalNetwork(
 		}, nil
 	}
 
-	if err := s.netw.ResetRouting(peers[index], peers); err != nil {
+	if err := s.netw.ResetRouting(peer, meshnetMap.Peers); err != nil {
 		s.pub.Publish(err)
 		return &pb.AllowLocalNetworkResponse{
 			Response: &pb.AllowLocalNetworkResponse_MeshnetErrorCode{
@@ -2199,6 +2210,7 @@ func (s *Server) AllowLocalNetwork(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.AllowLocalNetworkResponse{
 		Response: &pb.AllowLocalNetworkResponse_Empty{},
@@ -2245,7 +2257,7 @@ func (s *Server) DenyLocalNetwork(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2281,7 +2293,7 @@ func (s *Server) DenyLocalNetwork(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2292,7 +2304,7 @@ func (s *Server) DenyLocalNetwork(
 		}, nil
 	}
 
-	if !peers[index].DoIAllowLocalNetwork {
+	if !meshnetMap.Peers[index].DoIAllowLocalNetwork {
 		return &pb.DenyLocalNetworkResponse{
 			Response: &pb.DenyLocalNetworkResponse_DenyLocalNetworkErrorCode{
 				DenyLocalNetworkErrorCode: pb.DenyLocalNetworkErrorCode_LOCAL_NETWORK_ALREADY_DENIED,
@@ -2300,12 +2312,13 @@ func (s *Server) DenyLocalNetwork(
 		}, nil
 	}
 
-	peers[index].DoIAllowLocalNetwork = false
+	peer := meshnetMap.Peers[index]
+	peer.DoIAllowLocalNetwork = false
 
 	if err := s.updatePeerPermissions(
 		token,
 		cfg.MeshDevice.ID,
-		peers[index],
+		peer,
 	); err != nil {
 		s.pub.Publish(err)
 		return &pb.DenyLocalNetworkResponse{
@@ -2315,7 +2328,7 @@ func (s *Server) DenyLocalNetwork(
 		}, nil
 	}
 
-	if err := s.netw.ResetRouting(peers[index], peers); err != nil {
+	if err := s.netw.ResetRouting(peer, meshnetMap.Peers); err != nil {
 		s.pub.Publish(err)
 		return &pb.DenyLocalNetworkResponse{
 			Response: &pb.DenyLocalNetworkResponse_MeshnetErrorCode{
@@ -2323,6 +2336,7 @@ func (s *Server) DenyLocalNetwork(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.DenyLocalNetworkResponse{
 		Response: &pb.DenyLocalNetworkResponse_Empty{},
@@ -2369,7 +2383,7 @@ func (s *Server) AllowFileshare(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2405,7 +2419,7 @@ func (s *Server) AllowFileshare(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2416,16 +2430,14 @@ func (s *Server) AllowFileshare(
 		}, nil
 	}
 
-	peer := peers[index]
-
-	if peer.DoIAllowFileshare {
+	if meshnetMap.Peers[index].DoIAllowFileshare {
 		return &pb.AllowFileshareResponse{
 			Response: &pb.AllowFileshareResponse_AllowSendErrorCode{
 				AllowSendErrorCode: pb.AllowFileshareErrorCode_SEND_ALREADY_ALLOWED,
 			},
 		}, nil
 	}
-
+	peer := meshnetMap.Peers[index]
 	peer.DoIAllowFileshare = true
 
 	if err := s.updatePeerPermissions(
@@ -2451,6 +2463,7 @@ func (s *Server) AllowFileshare(
 			}, nil
 		}
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.AllowFileshareResponse{
 		Response: &pb.AllowFileshareResponse_Empty{},
@@ -2497,7 +2510,7 @@ func (s *Server) DenyFileshare(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2533,7 +2546,7 @@ func (s *Server) DenyFileshare(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2544,16 +2557,14 @@ func (s *Server) DenyFileshare(
 		}, nil
 	}
 
-	peer := peers[index]
-
-	if !peer.DoIAllowFileshare {
+	if !meshnetMap.Peers[index].DoIAllowFileshare {
 		return &pb.DenyFileshareResponse{
 			Response: &pb.DenyFileshareResponse_DenySendErrorCode{
 				DenySendErrorCode: pb.DenyFileshareErrorCode_SEND_ALREADY_DENIED,
 			},
 		}, nil
 	}
-
+	peer := meshnetMap.Peers[index]
 	peer.DoIAllowFileshare = false
 
 	if err := s.updatePeerPermissions(
@@ -2579,6 +2590,7 @@ func (s *Server) DenyFileshare(
 			}, nil
 		}
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.DenyFileshareResponse{
 		Response: &pb.DenyFileshareResponse_Empty{},
@@ -2625,7 +2637,7 @@ func (s *Server) EnableAutomaticFileshare(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2661,7 +2673,7 @@ func (s *Server) EnableAutomaticFileshare(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2672,16 +2684,14 @@ func (s *Server) EnableAutomaticFileshare(
 		}, nil
 	}
 
-	peer := peers[index]
-
-	if peer.AlwaysAcceptFiles {
+	if meshnetMap.Peers[index].AlwaysAcceptFiles {
 		return &pb.EnableAutomaticFileshareResponse{
 			Response: &pb.EnableAutomaticFileshareResponse_EnableAutomaticFileshareErrorCode{
 				EnableAutomaticFileshareErrorCode: pb.EnableAutomaticFileshareErrorCode_AUTOMATIC_FILESHARE_ALREADY_ENABLED,
 			},
 		}, nil
 	}
-
+	peer := meshnetMap.Peers[index]
 	peer.AlwaysAcceptFiles = true
 
 	if err := s.updatePeerPermissions(
@@ -2696,6 +2706,7 @@ func (s *Server) EnableAutomaticFileshare(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.EnableAutomaticFileshareResponse{
 		Response: &pb.EnableAutomaticFileshareResponse_Empty{},
@@ -2742,7 +2753,7 @@ func (s *Server) DisableAutomaticFileshare(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2778,7 +2789,7 @@ func (s *Server) DisableAutomaticFileshare(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2789,16 +2800,14 @@ func (s *Server) DisableAutomaticFileshare(
 		}, nil
 	}
 
-	peer := peers[index]
-
-	if !peer.AlwaysAcceptFiles {
+	if !meshnetMap.Peers[index].AlwaysAcceptFiles {
 		return &pb.DisableAutomaticFileshareResponse{
 			Response: &pb.DisableAutomaticFileshareResponse_DisableAutomaticFileshareErrorCode{
 				DisableAutomaticFileshareErrorCode: pb.DisableAutomaticFileshareErrorCode_AUTOMATIC_FILESHARE_ALREADY_DISABLED,
 			},
 		}, nil
 	}
-
+	peer := meshnetMap.Peers[index]
 	peer.AlwaysAcceptFiles = false
 
 	if err := s.updatePeerPermissions(
@@ -2813,6 +2822,7 @@ func (s *Server) DisableAutomaticFileshare(
 			},
 		}, nil
 	}
+	s.FetchAndCacheMeshnetMap(cfg)
 
 	return &pb.DisableAutomaticFileshareResponse{
 		Response: &pb.DisableAutomaticFileshareResponse_Empty{},
@@ -2859,7 +2869,7 @@ func (s *Server) NotifyNewTransfer(
 	}
 
 	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -2895,7 +2905,7 @@ func (s *Server) NotifyNewTransfer(
 		}, nil
 	}
 
-	index := slices.IndexFunc(peers, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -2909,7 +2919,7 @@ func (s *Server) NotifyNewTransfer(
 	if err := s.reg.NotifyNewTransfer(
 		token,
 		cfg.MeshDevice.ID,
-		peers[index].ID,
+		meshnetMap.Peers[index].ID,
 		req.FileName,
 		int(req.FileCount),
 		req.TransferId,
@@ -3001,8 +3011,7 @@ func (s *Server) connect(
 		EventStatus:   events.StatusAttempt,
 	}
 
-	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	resp, err := s.reg.List(token, cfg.MeshDevice.ID)
+	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -3037,7 +3046,7 @@ func (s *Server) connect(
 		}
 	}
 
-	index := slices.IndexFunc(resp, func(p mesh.MachinePeer) bool {
+	index := slices.IndexFunc(meshnetMap.Peers, func(p mesh.MachinePeer) bool {
 		return p.ID.String() == req.GetIdentifier()
 	})
 	if index == -1 {
@@ -3048,7 +3057,7 @@ func (s *Server) connect(
 		}
 	}
 
-	peer := resp[index]
+	peer := meshnetMap.Peers[index]
 	if !peer.DoesPeerAllowRouting {
 		return &pb.ConnectResponse{
 			Response: &pb.ConnectResponse_ConnectErrorCode{
@@ -3176,24 +3185,6 @@ func (s *Server) getPeerWithIdentifier(id string, peers mesh.MachinePeers) *mesh
 	}
 
 	return &peers[index]
-}
-
-func (s *Server) listPeers() (mesh.MachinePeers, error) {
-	var cfg config.Config
-	if err := s.cm.Load(&cfg); err != nil {
-		return nil, fmt.Errorf("reading configuration when listing peers: %w", err)
-	}
-
-	if cfg.MeshDevice == nil {
-		return nil, fmt.Errorf("meshnet is not configured")
-	}
-
-	token := cfg.TokensData[cfg.AutoConnectData.ID].Token
-	peers, err := s.reg.List(token, cfg.MeshDevice.ID)
-	if err != nil {
-		return nil, fmt.Errorf("listing peers: %w", err)
-	}
-	return peers, nil
 }
 
 func MakePeerMaps(peers *pb.PeerList) (map[string]*pb.Peer, map[string]*pb.Peer) {

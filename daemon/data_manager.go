@@ -34,7 +34,7 @@ type DataManager struct {
 	versionData      VersionData
 	dataUpdateEvents *events.DataUpdateEvents
 	mu               sync.Mutex
-	meshnetMap       *models.CachedValue[*mesh.MachineMap]
+	meshnetMap       *models.CachedValue[mesh.MachineMap]
 }
 
 func NewDataManager(insightsFilePath,
@@ -49,8 +49,8 @@ func NewDataManager(insightsFilePath,
 		serversData:      ServersData{filePath: serversFilePath},
 		versionData:      VersionData{filePath: versionFilePath},
 		dataUpdateEvents: dataUpdateEvents,
-		meshnetMap: models.NewCachedValue[*mesh.MachineMap](
-			nil,
+		meshnetMap: models.NewCachedValue(
+			mesh.MachineMap{},
 			errors.New("empty"),
 			time.Time{},
 			internal.MeshnetMapUpdateInterval,
@@ -392,10 +392,14 @@ func (dm *DataManager) CountryCodeToCountryName(code string) string {
 	return ""
 }
 
-func (dm *DataManager) GetMeshnetMap() (*mesh.MachineMap, error) {
+func (dm *DataManager) GetMeshnetMap() (mesh.MachineMap, error) {
 	return dm.meshnetMap.Get()
 }
 
-func (dm *DataManager) SetMeshnetMap(peers *mesh.MachineMap, err error) {
+func (dm *DataManager) SetMeshnetMap(peers mesh.MachineMap, err error) {
 	dm.meshnetMap.Set(peers, err)
+}
+
+func (dm *DataManager) ChangeUpdaterFnForMeshnetMap(updaterFn func(*models.CachedValue[mesh.MachineMap])) {
+	dm.meshnetMap.ChangeUpdaterFn(updaterFn)
 }

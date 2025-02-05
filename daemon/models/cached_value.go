@@ -36,9 +36,11 @@ func (c *CachedValue[T]) Get() (T, error) {
 	shouldUpdate := false
 	c.mu.Lock()
 	defer func() {
+		// to prevent race condition store function value in lock
+		updaterFn := c.updaterFn
 		c.mu.Unlock()
-		if shouldUpdate && c.updaterFn != nil {
-			c.updaterFn(c)
+		if shouldUpdate && updaterFn != nil {
+			updaterFn(c)
 		}
 	}()
 	shouldUpdate = c.cachedDate.Add(c.validity).Before(time.Now())
@@ -52,4 +54,10 @@ func (c *CachedValue[T]) Set(value T, err error) {
 	c.cachedDate = time.Now()
 	c.value = value
 	c.latestError = err
+}
+
+func (c *CachedValue[T]) ChangeUpdaterFn(updaterFn func(*CachedValue[T])) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updaterFn = updaterFn
 }

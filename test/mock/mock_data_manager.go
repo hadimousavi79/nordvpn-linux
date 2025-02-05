@@ -7,16 +7,16 @@ import (
 )
 
 type MockDataManager struct {
-	meshnetMap *mesh.MachineMap
+	meshnetMap mesh.MachineMap
 }
 
-func (m *MockDataManager) GetMeshnetMap() (*mesh.MachineMap, error) {
-	if m.meshnetMap == nil {
-		return nil, errors.New("empty")
+func (m *MockDataManager) GetMeshnetMap() (mesh.MachineMap, error) {
+	if m.meshnetMap.PublicKey == "" {
+		return mesh.MachineMap{}, errors.New("empty")
 	}
 	return m.meshnetMap, nil
 }
 
-func (m *MockDataManager) SetMeshnetMap(meshnetMap *mesh.MachineMap, err error) {
+func (m *MockDataManager) SetMeshnetMap(meshnetMap mesh.MachineMap, err error) {
 	m.meshnetMap = meshnetMap
 }
