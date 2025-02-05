@@ -430,6 +430,7 @@ def add_peer(ssh_client: ssh.Ssh,
 
 def remove_all_peers():
     """Removes all meshnet peers from local device."""
+    sh.nordvpn.mesh.peer.refresh()
     peer_list = PeerList.from_str(sh.nordvpn.mesh.peer.list())
 
     for peer in peer_list.get_all_internal_peers() + peer_list.get_all_external_peers():
@@ -438,6 +439,7 @@ def remove_all_peers():
 
 def remove_all_peers_in_peer(ssh_client: ssh.Ssh):
     """Removes all meshnet peers from peer device."""
+    ssh_client.exec_command("nordvpn mesh peer refresh")
     peer_list = PeerList.from_str(ssh_client.exec_command("nordvpn mesh peer list"))
 
     for peer in peer_list.get_all_internal_peers() + peer_list.get_all_external_peers():

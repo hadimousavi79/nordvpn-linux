@@ -500,6 +500,13 @@ func main() {
 		return nil
 	})
 
+	daemonEvents.Settings.Meshnet.Subscribe(func(enabled bool) error {
+		if !enabled {
+			dm.SetMeshnetMap(mesh.MachineMap{}, errors.New("empty"))
+		}
+		return nil
+	})
+
 	opts := []grpc.ServerOption{
 		grpc.Creds(internal.NewUnixSocketCredentials(internal.NewDaemonAuthenticator())),
 	}
