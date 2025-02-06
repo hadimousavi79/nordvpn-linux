@@ -70,6 +70,8 @@ class TestUtils:
     def teardown_function(ssh_client: ssh.Ssh):
         logging.log(data=info.collect())
         logging.log()
+        dest_logs_path = f"{os.environ['WORKDIR']}/dist/logs"
+        ssh_client.download_file("/var/log/nordvpn/daemon.log", f"{dest_logs_path}/other-peer-daemon.log")
         ssh_client.exec_command("nordvpn set defaults")
         sh.nordvpn.set.defaults()
         daemon.stop_peer(ssh_client)
