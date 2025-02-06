@@ -502,7 +502,7 @@ def send_meshnet_invite(email):
             stdout, stderr = process.communicate()
 
         if process.returncode != 0:
-            logging.log(f"send_meshnet_invite: {stdout} | {stderr}")
+            logging.log(f"send_meshnet_invite {process.returncode} {os.strerror(process.returncode)}: {stdout} | {stderr}")
             raise sh.ErrorReturnCode_1(full_cmd="", stdout=b"", stderr=stdout.encode('utf-8'))
 
         return stdout.strip().split('\n')[-1]
