@@ -14,7 +14,6 @@ import (
 	"github.com/NordSecurity/nordvpn-linux/events/subs"
 	"github.com/NordSecurity/nordvpn-linux/internal"
 	"github.com/NordSecurity/nordvpn-linux/nc"
-	"github.com/NordSecurity/nordvpn-linux/test/mock"
 	testcore "github.com/NordSecurity/nordvpn-linux/test/mock/core"
 	"github.com/NordSecurity/nordvpn-linux/test/mock/networker"
 	testnorduser "github.com/NordSecurity/nordvpn-linux/test/mock/norduser/service"
@@ -47,7 +46,7 @@ func TestLogout_Token(t *testing.T) {
 		credentialsAPI: &testcore.CredentialsAPIMock{},
 		events: &daemonevents.Events{
 			User:     &daemonevents.LoginEvents{Logout: &daemonevents.MockPublisherSubscriber[events.DataAuthorization]{}},
-			Settings: mock.NewSettingsEmptyEvents(),
+			Settings: daemonevents.NewMockSettingsEmptyEvents(),
 		},
 	}
 
