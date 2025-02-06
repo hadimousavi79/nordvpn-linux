@@ -434,7 +434,14 @@ def remove_all_peers():
     peer_list = PeerList.from_str(sh.nordvpn.mesh.peer.list())
 
     for peer in peer_list.get_all_internal_peers() + peer_list.get_all_external_peers():
-        sh.nordvpn.mesh.peer.remove(peer.hostname)
+        try:
+            sh.nordvpn.mesh.peer.remove(peer.hostname)
+        except Exception as e: # noqa: BLE001
+            # ignore the error. Since meshnet map is cached it is only refreshed on NC events
+            # so it can happen that the peer is not anymore into the list when it needs to be deleted
+            logging.log(f"remove_all_peers {peer.hostname} error: {e}")
+
+    time.sleep(1) # give some time to NC to handle all the changes
 
 
 def remove_all_peers_in_peer(ssh_client: ssh.Ssh):
@@ -443,7 +450,13 @@ def remove_all_peers_in_peer(ssh_client: ssh.Ssh):
     peer_list = PeerList.from_str(ssh_client.exec_command("nordvpn mesh peer list"))
 
     for peer in peer_list.get_all_internal_peers() + peer_list.get_all_external_peers():
-        ssh_client.exec_command(f"nordvpn mesh peer remove {peer.hostname}")
+        try:
+            ssh_client.exec_command(f"nordvpn mesh peer remove {peer.hostname}")
+        except Exception as e: # noqa: BLE001
+            # ignore the error. Since meshnet map is cached it is only refreshed on NC events
+            # so it can happen that the peer is not anymore into the list when it needs to be deleted
+            logging.log(f"remove_all_peers_in_peer {peer.hostname} error: {e}")
+    time.sleep(1) # give some time to NC to handle all the changes
 
 
 def get_sent_invites(output: str) -> list:
