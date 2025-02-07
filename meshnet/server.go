@@ -721,7 +721,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	resp, err := s.getOrFetchMeshnetMap(cfg)
+	resp, err := s.FetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
