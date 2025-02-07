@@ -17,14 +17,14 @@ type CachedValue[T any] struct {
 
 func NewCachedValue[T any](
 	value T,
-	err error,
+	latestError error,
 	cachedDate time.Time,
 	validity time.Duration,
 	updaterFn func(*CachedValue[T]),
 ) *CachedValue[T] {
 	return &CachedValue[T]{
 		value:       value,
-		latestError: err,
+		latestError: latestError,
 		cachedDate:  cachedDate,
 		validity:    validity,
 		updaterFn:   updaterFn,

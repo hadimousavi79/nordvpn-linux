@@ -25,7 +25,7 @@ func ConfigureMeshnetMapRefresher(
 			gocron.WithTags(internal.MeshnetMapJobTag),
 		)
 		if err != nil {
-			log.Println(internal.WarningPrefix, "job refresh meshnet schedule error:", err)
+			log.Println(internal.ErrorPrefix, "job refresh meshnet schedule error:", err)
 			return err
 		}
 

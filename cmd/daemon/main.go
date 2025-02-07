@@ -501,6 +501,7 @@ func main() {
 	})
 
 	daemonEvents.Settings.Meshnet.Subscribe(func(enabled bool) error {
+		// When meshnet is disabled clear the cache
 		if !enabled {
 			dm.SetMeshnetMap(mesh.MachineMap{}, errors.New("empty"))
 		}
@@ -592,7 +593,7 @@ func main() {
 	}()
 	rpc.StartJobs(statePublisher, heartBeatSubject)
 
-	meshService.StartJobs(daemonEvents.Settings.Meshnet, meshnetEvents, cfg)
+	meshService.StartJobs(daemonEvents.Settings.Meshnet, cfg)
 	rpc.StartKillSwitch()
 	if internal.IsSystemd() {
 		go rpc.StartSystemShutdownMonitor()

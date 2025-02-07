@@ -4,6 +4,7 @@ import sh
 from lib import login, meshnet, ssh, sh_no_tty
 
 ssh_client = ssh.Ssh("qa-peer", "root", "root")
+# create an sh object with tty_out=false
 sh_no_tty = sh_no_tty.ShNoTTY()
 
 

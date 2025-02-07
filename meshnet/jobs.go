@@ -15,7 +15,6 @@ import (
 
 func (s *Server) StartJobs(
 	meshnetStatusPublisher events.PublishSubcriber[bool],
-	meshnetEvents *Events,
 	cfg config.Config,
 ) {
 	if _, err := s.scheduler.NewJob(

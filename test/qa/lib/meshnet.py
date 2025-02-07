@@ -725,6 +725,7 @@ def are_peers_connected(ssh_client: ssh.Ssh = None, retry: int = 3) -> None:
     pytest.fail("Peers do not see each other as connected.")
 
 
+# Wait until a specified peer becomes online
 def waitForPeerToBeOnline(peer_ip: str, ssh_client: ssh.Ssh = None, waitDurationSec: int = 5) -> None:
     def get_peers_list() -> str :
         if not ssh_client:

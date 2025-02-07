@@ -1,5 +1,6 @@
 import sh
 
+# Helper class that uses sh command with tty_out=false
 class ShNoTTY:
     def __init__(self, base=None, level=None):
         self.base = base or sh

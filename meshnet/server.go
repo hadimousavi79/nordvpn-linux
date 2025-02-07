@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -305,7 +304,7 @@ func (s *Server) StartMeshnet() error {
 		return ErrDeviceNotRegistered
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	resp, err := s.fetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -404,7 +403,7 @@ func (s *Server) RefreshMeshnet(context.Context, *pb.Empty) (*pb.MeshnetResponse
 			}, nil
 		}
 
-		log.Println(internal.ErrorPrefix, "failed to fetch meshnet map", err)
+		s.pub.Publish(fmt.Errorf("failed to fetch meshnet map %w", err))
 
 		return nil, err
 	}
@@ -423,7 +422,7 @@ func (s *Server) RefreshMeshnetMap(changePeerIds []string) (mesh.MachineMap, err
 		})
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	resp, err := s.fetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		if errors.Is(err, core.ErrUnauthorized) {
 			if err := s.cm.SaveWith(auth.Logout(cfg.AutoConnectData.ID, s.daemonEvents.User.Logout)); err != nil {
@@ -445,13 +444,12 @@ func (s *Server) RefreshMeshnetMap(changePeerIds []string) (mesh.MachineMap, err
 	if len(changePeerIds) != 0 {
 		if internal.Contains(changePeerIds, cfg.MeshDevice.ID.String()) && !cfg.MeshDevice.IsEqual(resp.Machine) {
 			// update info about current device when meshnet info are different
-			log.Println(internal.InfoPrefix, "update current machine information")
 			err := s.cm.SaveWith(func(c config.Config) config.Config {
 				c.MeshDevice = &resp.Machine
 				return c
 			})
 			if err != nil {
-				log.Println(internal.ErrorPrefix, "failed to save new machine information", err)
+				s.pub.Publish(fmt.Errorf("failed to save new machine information %w", err))
 			}
 		}
 	}
@@ -465,7 +463,7 @@ func (s *Server) RefreshMeshnetMap(changePeerIds []string) (mesh.MachineMap, err
 	return resp, nil
 }
 
-func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (mesh.MachineMap, error) {
+func (s *Server) fetchAndCacheMeshnetMap(cfg config.Config) (mesh.MachineMap, error) {
 	if !s.ac.IsLoggedIn() {
 		return mesh.MachineMap{}, internal.NewGenericError(&pb.MeshnetResponse_ServiceError{
 			ServiceError: pb.ServiceErrorCode_NOT_LOGGED_IN,
@@ -499,7 +497,7 @@ func (s *Server) FetchAndCacheMeshnetMap(cfg config.Config) (mesh.MachineMap, er
 func (s *Server) getOrFetchMeshnetMap(cfg config.Config) (mesh.MachineMap, error) {
 	meshnetMap, err := s.dataManager.GetMeshnetMap()
 	if err != nil || meshnetMap.PublicKey == "" {
-		meshnetMap, err = s.FetchAndCacheMeshnetMap(cfg)
+		meshnetMap, err = s.fetchAndCacheMeshnetMap(cfg)
 	}
 
 	return meshnetMap, err
@@ -721,7 +719,7 @@ func (s *Server) AcceptInvite(
 		}, nil
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	resp, err := s.fetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.RespondToInviteResponse{
@@ -1057,7 +1055,7 @@ func (s *Server) GetPeers(context.Context, *pb.Empty) (*pb.GetPeersResponse, err
 	}
 	meshnetMap, err := s.getOrFetchMeshnetMap(cfg)
 	if err != nil {
-		log.Println(internal.ErrorPrefix, "get peers failed with error", err)
+		s.pub.Publish(fmt.Errorf("get peers failed with error %w", err))
 
 		var meshnetError *internal.GenericError[*pb.MeshnetResponse_MeshnetError]
 		if errors.As(err, &meshnetError) {
@@ -1268,7 +1266,9 @@ func (s *Server) RemovePeer(
 			}, nil
 		}
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("remove peer fetch meshnet map: %w", err))
+	}
 
 	return &pb.RemovePeerResponse{
 		Response: &pb.RemovePeerResponse_Empty{},
@@ -1390,7 +1390,7 @@ func (s *Server) ChangePeerNickname(
 		return s.apiToNicknameError(err), nil
 	}
 
-	mapResp, err := s.FetchAndCacheMeshnetMap(cfg)
+	mapResp, err := s.fetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
@@ -1573,7 +1573,7 @@ func (s *Server) ChangeMachineNickname(
 		}, nil
 	}
 
-	resp, err := s.FetchAndCacheMeshnetMap(cfg)
+	resp, err := s.fetchAndCacheMeshnetMap(cfg)
 	if err != nil {
 		s.pub.Publish(err)
 		return &pb.ChangeNicknameResponse{
@@ -1711,7 +1711,9 @@ func (s *Server) AllowIncoming(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("allow incoming peer fetch meshnet map: %w", err))
+	}
 
 	if peer.Address.IsValid() {
 		if err := s.netw.AllowIncoming(UniqueAddress{
@@ -1841,7 +1843,9 @@ func (s *Server) DenyIncoming(
 			}, nil
 		}
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("deny incoming fetch meshnet map: %w", err))
+	}
 
 	return &pb.DenyIncomingResponse{
 		Response: &pb.DenyIncomingResponse_Empty{},
@@ -1958,7 +1962,9 @@ func (s *Server) AllowRouting(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("allow routing fetch meshnet map: %w", err))
+	}
 
 	return &pb.AllowRoutingResponse{
 		Response: &pb.AllowRoutingResponse_Empty{},
@@ -2084,7 +2090,9 @@ func (s *Server) DenyRouting(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("deny routing fetch meshnet map: %w", err))
+	}
 
 	return &pb.DenyRoutingResponse{
 		Response: &pb.DenyRoutingResponse_Empty{},
@@ -2210,7 +2218,9 @@ func (s *Server) AllowLocalNetwork(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("allow local fetch meshnet map: %w", err))
+	}
 
 	return &pb.AllowLocalNetworkResponse{
 		Response: &pb.AllowLocalNetworkResponse_Empty{},
@@ -2336,7 +2346,9 @@ func (s *Server) DenyLocalNetwork(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("deny local fetch meshnet map: %w", err))
+	}
 
 	return &pb.DenyLocalNetworkResponse{
 		Response: &pb.DenyLocalNetworkResponse_Empty{},
@@ -2463,7 +2475,9 @@ func (s *Server) AllowFileshare(
 			}, nil
 		}
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("allow fileshare fetch meshnet map: %w", err))
+	}
 
 	return &pb.AllowFileshareResponse{
 		Response: &pb.AllowFileshareResponse_Empty{},
@@ -2590,7 +2604,9 @@ func (s *Server) DenyFileshare(
 			}, nil
 		}
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("deny fileshare fetch meshnet map: %w", err))
+	}
 
 	return &pb.DenyFileshareResponse{
 		Response: &pb.DenyFileshareResponse_Empty{},
@@ -2706,7 +2722,9 @@ func (s *Server) EnableAutomaticFileshare(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("enable automatic accept files fetch meshnet map: %w", err))
+	}
 
 	return &pb.EnableAutomaticFileshareResponse{
 		Response: &pb.EnableAutomaticFileshareResponse_Empty{},
@@ -2822,7 +2840,9 @@ func (s *Server) DisableAutomaticFileshare(
 			},
 		}, nil
 	}
-	s.FetchAndCacheMeshnetMap(cfg)
+	if _, err := s.fetchAndCacheMeshnetMap(cfg); err != nil {
+		s.pub.Publish(fmt.Errorf("disable automatic receive files fetch meshnet map: %w", err))
+	}
 
 	return &pb.DisableAutomaticFileshareResponse{
 		Response: &pb.DisableAutomaticFileshareResponse_Empty{},

@@ -113,6 +113,7 @@ func (r *RPC) Logout(ctx context.Context, in *pb.LogoutRequest) (payload *pb.Pay
 		log.Println(internal.ErrorPrefix, err)
 	}
 
+	// notify that settings changed
 	r.events.Settings.Publish(cfg)
 
 	r.publisher.Publish("user logged out")
